@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+.astro/
+.turbo/
+
+# OS
+.DS_Store
+
+# Logs
+*.log
+
+# Env
+.env
+.env.*
+
+# Assets lourds (filet de sécurité — les originaux vivent hors du repo)
+*.mov
+*.mp4
+*.HEIC
+*.HEIF
+*.psd
+*.ai

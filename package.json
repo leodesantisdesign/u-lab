@@ -1,0 +1,9 @@
+{
+  "name": "u-lab",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "dev": "pnpm -r --parallel --if-present dev",
+    "build": "pnpm -r --if-present build"
+  }
+}
