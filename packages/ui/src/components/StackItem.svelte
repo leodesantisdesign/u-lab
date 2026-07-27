@@ -7,15 +7,15 @@
     selected?: boolean;
     hidden?: boolean;
     dragging?: boolean;
-    draggable?: boolean;
+    translateY?: number;
     onSelect?: () => void;
     onChange?: () => void;
     onToggleHide?: () => void;
     onRemove?: () => void;
-    onDragStart?: (event: DragEvent) => void;
-    onDragOver?: (event: DragEvent) => void;
-    onDrop?: (event: DragEvent) => void;
-    onDragEnd?: (event: DragEvent) => void;
+    onHandlePointerDown?: (event: PointerEvent) => void;
+    onMoveUp?: () => void;
+    onMoveDown?: () => void;
+    selectRef?: (element: HTMLButtonElement | null) => void;
   }
 
   let {
@@ -24,23 +24,43 @@
     selected = false,
     hidden = false,
     dragging = false,
-    draggable = false,
+    translateY = 0,
     onSelect,
     onChange,
     onToggleHide,
     onRemove,
-    onDragStart,
-    onDragOver,
-    onDrop,
-    onDragEnd,
+    onHandlePointerDown,
+    onMoveUp,
+    onMoveDown,
+    selectRef,
   }: Props = $props();
 
   let menuOpen = $state(false);
+  let removing = $state(false);
+  let selectEl: HTMLButtonElement | undefined = $state();
+  let surfaceEl: HTMLDivElement | undefined = $state();
 
-  function handleKeydown(event: KeyboardEvent) {
-    if (event.key === 'Enter' || event.key === ' ') {
+  $effect(() => {
+    selectRef?.(selectEl ?? null);
+    return () => selectRef?.(null);
+  });
+
+  // Sous prefers-reduced-motion, --dur vaut 0ms : certains navigateurs ne
+  // déclenchent jamais `animationend` pour une animation de durée nulle, ce
+  // qui bloquerait le retrait pour de bon. Filet de sécurité : si la durée
+  // calculée est nulle, on retire immédiatement sans attendre l'événement.
+  $effect(() => {
+    if (!removing || !surfaceEl) return;
+    if (getComputedStyle(surfaceEl).animationDuration === '0s') onRemove?.();
+  });
+
+  function handleSelectKeydown(event: KeyboardEvent) {
+    if (event.altKey && event.key === 'ArrowUp') {
       event.preventDefault();
-      onSelect?.();
+      onMoveUp?.();
+    } else if (event.altKey && event.key === 'ArrowDown') {
+      event.preventDefault();
+      onMoveDown?.();
     }
   }
 
@@ -64,10 +84,17 @@
     onToggleHide?.();
   }
 
+  // La suppression réelle attend la fin de l'animation de disparition
+  // (voir handleAnimationEnd) — retirer l'entrée du document avant que la
+  // carte ait fini de s'effacer romprait la symétrie apparition/disparition.
   function handleRemove(event: MouseEvent) {
     event.stopPropagation();
     menuOpen = false;
-    onRemove?.();
+    removing = true;
+  }
+
+  function handleAnimationEnd() {
+    if (removing) onRemove?.();
   }
 
   function handleMenuKeydown(event: KeyboardEvent) {
@@ -78,107 +105,186 @@
   }
 </script>
 
-<svelte:window onclick={closeMenu} />
+<svelte:window onclick={menuOpen ? closeMenu : undefined} />
 
-<div
+<li
   class="stack-item"
-  class:stack-item--selected={selected}
-  class:stack-item--hidden={hidden}
   class:stack-item--dragging={dragging}
-  role="button"
-  tabindex="0"
-  aria-pressed={selected}
-  {draggable}
-  onclick={onSelect}
-  onkeydown={handleKeydown}
-  ondragstart={onDragStart}
-  ondragover={onDragOver}
-  ondrop={onDrop}
-  ondragend={onDragEnd}
+  class:stack-item--menu-open={menuOpen}
+  style:transform="translateY({translateY}px)"
 >
-  <span class="stack-item__handle" aria-hidden="true">⠿</span>
-  <span class="stack-item__icon">{@render icon()}</span>
-  <span class="stack-item__name">{name}</span>
-  <button class="stack-item__change" onclick={handleChange}>Changer</button>
-  <div class="stack-item__menu-wrap" onkeydown={handleMenuKeydown}>
+  <div
+    bind:this={surfaceEl}
+    class="stack-item__surface"
+    class:stack-item__surface--selected={selected}
+    class:stack-item__surface--hidden={hidden}
+    class:stack-item__surface--dragging={dragging}
+    class:stack-item__surface--removing={removing}
+    onanimationend={handleAnimationEnd}
+  >
+    <span
+      class="stack-item__handle"
+      aria-hidden="true"
+      onpointerdown={(event) => onHandlePointerDown?.(event)}
+    >⠿</span>
+
     <button
-      class="stack-item__menu-trigger"
-      onclick={toggleMenu}
-      aria-haspopup="true"
-      aria-expanded={menuOpen}
-      aria-label="Actions sur {name}"
+      bind:this={selectEl}
+      class="stack-item__select"
+      aria-pressed={selected}
+      onclick={onSelect}
+      onkeydown={handleSelectKeydown}
     >
-      ⋮
+      <span class="stack-item__icon">{@render icon()}</span>
+      <span class="stack-item__name">{name}</span>
     </button>
-    {#if menuOpen}
-      <div class="stack-item__menu" role="menu">
-        <button class="stack-item__menu-item" role="menuitem" onclick={handleToggleHide}>
-          {hidden ? 'Afficher' : 'Cacher'}
-        </button>
-        <button
-          class="stack-item__menu-item stack-item__menu-item--danger"
-          role="menuitem"
-          onclick={handleRemove}
-        >
-          Retirer
-        </button>
-      </div>
-    {/if}
+
+    <button class="stack-item__change" onclick={handleChange}>Changer</button>
+
+    <div class="stack-item__menu-wrap" onkeydown={handleMenuKeydown}>
+      <button
+        class="stack-item__menu-trigger"
+        onclick={toggleMenu}
+        aria-haspopup="true"
+        aria-expanded={menuOpen}
+        aria-label="Actions sur {name}"
+      >
+        ⋮
+      </button>
+      {#if menuOpen}
+        <div class="stack-item__menu" role="menu">
+          <button class="stack-item__menu-item" role="menuitem" onclick={handleToggleHide}>
+            {hidden ? 'Afficher' : 'Cacher'}
+          </button>
+          <button
+            class="stack-item__menu-item stack-item__menu-item--danger"
+            role="menuitem"
+            onclick={handleRemove}
+          >
+            Retirer
+          </button>
+        </div>
+      {/if}
+    </div>
   </div>
-</div>
+</li>
 
 <style>
+  @keyframes stack-item-in {
+    from {
+      opacity: 0;
+      transform: translateY(calc(var(--space-6) * -1));
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes stack-item-out {
+    from {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    to {
+      opacity: 0;
+      transform: translateY(calc(var(--space-6) * -1));
+    }
+  }
+
   .stack-item {
-    position: relative;
+    width: var(--stack-width);
+    transition: transform var(--dur-fast) var(--ease);
+  }
+
+  .stack-item--dragging {
+    z-index: 5;
+    transition: none;
+  }
+
+  /* La transition d'entrée sur .stack-item__surface (transform + opacity)
+     lui crée un contexte d'empilement propre dans les navigateurs modernes,
+     même une fois l'animation terminée — sans z-index explicite ici, le
+     menu ⋮ d'une ligne ne peut plus s'afficher au-dessus de la ligne
+     suivante, qui le recouvre en étant peinte après elle dans le DOM. */
+  .stack-item--menu-open {
+    z-index: 10;
+  }
+
+  .stack-item__surface {
     display: flex;
     align-items: center;
     gap: var(--space-8);
-    width: var(--stack-width);
+    width: 100%;
     height: var(--stack-height);
     padding: 0 var(--space-10);
     background: var(--bg-1);
     border: 1px solid var(--line);
     border-radius: var(--r-lg);
-    cursor: pointer;
     transition: border-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+    animation: stack-item-in var(--dur) var(--ease);
   }
 
-  .stack-item:focus-visible {
-    outline: 2px solid var(--ink-muted);
-    outline-offset: var(--focus-offset);
-  }
-
-  .stack-item--selected {
+  .stack-item__surface--selected {
     border-color: var(--accent);
   }
 
   /* Contenu à 40% d'opacité, bordure inchangée (design system §3) — appliqué
-     aux éléments de contenu, pas à `.stack-item` elle-même : lui donner une
+     aux éléments de contenu, pas à la carte elle-même : lui donner une
      opacité créerait un nouveau contexte d'empilement CSS et empêcherait le
      menu ⋮ (z-index) de s'afficher au-dessus des éléments suivants de la page. */
-  .stack-item--hidden .stack-item__handle,
-  .stack-item--hidden .stack-item__icon,
-  .stack-item--hidden .stack-item__name,
-  .stack-item--hidden .stack-item__change {
+  .stack-item__surface--hidden .stack-item__handle,
+  .stack-item__surface--hidden .stack-item__select,
+  .stack-item__surface--hidden .stack-item__change {
     opacity: 0.4;
   }
 
-  .stack-item--dragging {
+  .stack-item__surface--dragging {
     box-shadow: var(--shadow);
-    transform: translateY(-1px);
+  }
+
+  .stack-item__surface--removing {
+    animation: stack-item-out var(--dur) var(--ease) both;
   }
 
   .stack-item__handle {
+    display: flex;
+    align-items: center;
     flex-shrink: 0;
     color: var(--ink-faint);
     line-height: 1;
     cursor: grab;
     opacity: 0;
+    touch-action: none;
     transition: opacity var(--dur-fast) var(--ease);
   }
 
-  .stack-item:hover .stack-item__handle {
+  .stack-item__surface:hover .stack-item__handle {
     opacity: 1;
+  }
+
+  .stack-item__surface--dragging .stack-item__handle {
+    opacity: 1;
+    cursor: grabbing;
+  }
+
+  .stack-item__select {
+    display: flex;
+    align-items: center;
+    gap: var(--space-8);
+    flex: 1;
+    min-width: 0;
+    font: inherit;
+    text-align: left;
+    background: transparent;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+  }
+
+  .stack-item__select:focus-visible {
+    outline: 2px solid var(--ink-muted);
+    outline-offset: var(--focus-offset);
   }
 
   .stack-item__icon {
@@ -193,6 +299,7 @@
 
   .stack-item__name {
     flex: 1;
+    min-width: 0;
     font-family: var(--font-sans);
     font-size: var(--t-sm);
     font-weight: 400;

@@ -10,6 +10,7 @@
     alt?: string;
     children?: Snippet;
     ratioControl?: Snippet;
+    pulseToken?: number;
   }
 
   let {
@@ -21,6 +22,7 @@
     alt = '',
     children,
     ratioControl,
+    pulseToken = 0,
   }: Props = $props();
 </script>
 
@@ -39,6 +41,13 @@
       <img class="preview-frame__image" {src} {alt} />
     {/if}
   </div>
+  <!-- Le seul retour « quelque chose vient d'être branché » (design system §5) :
+       la bordure s'allume brièvement quand la pile change. -->
+  {#if pulseToken}
+    {#key pulseToken}
+      <div class="preview-frame__pulse" aria-hidden="true"></div>
+    {/key}
+  {/if}
 </div>
 
 <style>
@@ -102,5 +111,27 @@
     max-width: 100%;
     max-height: 100%;
     image-rendering: pixelated;
+  }
+
+  .preview-frame__pulse {
+    position: absolute;
+    inset: -1px;
+    border-radius: var(--r-lg);
+    border: 1px solid var(--accent);
+    opacity: 0;
+    pointer-events: none;
+    animation: preview-pulse var(--dur-pulse) var(--ease);
+  }
+
+  @keyframes preview-pulse {
+    0% {
+      opacity: 0;
+    }
+    25% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0;
+    }
   }
 </style>

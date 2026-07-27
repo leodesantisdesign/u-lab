@@ -1,5 +1,5 @@
 import { History } from './history.ts';
-import type { ModSource, Modulation, ModuleInstance, ParamValue, Project } from './types.ts';
+import type { BlendMode, ModSource, Modulation, ModuleInstance, ParamValue, Project } from './types.ts';
 
 export function createProject(name = 'Sans titre'): Project {
 	const now = Date.now();
@@ -43,12 +43,12 @@ export class DocumentStore {
 		return this.history.canRedo;
 	}
 
-	addModule(type: string, atIndex?: number): string {
+	addModule(type: string, initialParams: Record<string, ParamValue> = {}, atIndex?: number): string {
 		const instance: ModuleInstance = {
 			id: crypto.randomUUID(),
 			type,
 			enabled: true,
-			params: {},
+			params: { ...initialParams },
 			blend: { mode: 'normal', opacity: 1 },
 		};
 		const index = atIndex ?? this.project.stack.length;
@@ -82,11 +82,11 @@ export class DocumentStore {
 		this.commit();
 	}
 
-	replaceModule(id: string, newType: string): void {
+	replaceModule(id: string, newType: string, initialParams: Record<string, ParamValue> = {}): void {
 		const instance = this.project.stack.find((m) => m.id === id);
 		if (!instance) return;
 		instance.type = newType;
-		instance.params = {};
+		instance.params = { ...initialParams };
 		this.commit();
 	}
 
@@ -95,6 +95,26 @@ export class DocumentStore {
 		if (!instance) return;
 		instance.params[key] = value;
 		this.commit(`${moduleId}.${key}`);
+	}
+
+	resetParams(moduleId: string, params: Record<string, ParamValue>): void {
+		const instance = this.project.stack.find((m) => m.id === moduleId);
+		if (!instance) return;
+		instance.params = { ...params };
+		this.commit();
+	}
+
+	setBlend(moduleId: string, blend: { mode: BlendMode; opacity: number }): void {
+		const instance = this.project.stack.find((m) => m.id === moduleId);
+		if (!instance) return;
+		const groupKey = instance.blend.mode === blend.mode ? 'blend.opacity' : 'blend.mode';
+		instance.blend = { ...blend };
+		this.commit(`${moduleId}.${groupKey}`);
+	}
+
+	setFormat(format: { ratio: string; width: number; height: number }): void {
+		this.project.format = { ...format };
+		this.commit();
 	}
 
 	addModulation(target: { moduleId: string; paramKey: string }, source: ModSource): string {
