@@ -1,0 +1,17 @@
+{
+  "name": "@ulab/ui",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    "./index.css": "./src/index.css",
+    "./components/*.svelte": "./src/components/*.svelte"
+  },
+  "peerDependencies": {
+    "svelte": "^5.0.0"
+  },
+  "dependencies": {
+    "@ulab/core": "workspace:*",
+    "@ulab/modules": "workspace:*"
+  }
+}

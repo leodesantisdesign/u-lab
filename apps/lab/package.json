@@ -12,6 +12,11 @@
     "astro": "astro"
   },
   "dependencies": {
-    "astro": "^7.1.3"
+    "@astrojs/svelte": "^9.0.1",
+    "@ulab/core": "workspace:*",
+    "@ulab/modules": "workspace:*",
+    "@ulab/ui": "workspace:*",
+    "astro": "^7.1.3",
+    "svelte": "^5.56.8"
   }
 }

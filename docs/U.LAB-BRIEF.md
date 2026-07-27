@@ -5,6 +5,8 @@
 > Premier outil déjà amorcé : **u.dither** (édition photo/vidéo en dithering & effets).
 >
 > Document de travail — v1, juillet 2026. Basé sur une analyse de brik.space, artkit.cc, endlesstools.io, dasca.studio, de comptes de veille Instagram, et de la base de code u.dither existante.
+>
+> ⚠️ **Document historique — partiellement périmé.** La **vision et le positionnement (§1, §2) restent valides**, mais tout ce qui touche à l'architecture est caduc : les §3 et §5 décrivent encore le modèle « un outil = une page » avec un dossier `tools/u-dither/`, `tools/u-halftone/` et le préfixe `u.` sur les outils. Ce modèle a été abandonné en juillet 2026 au profit d'un **éditeur unique à pile de modules**. Pour l'architecture en vigueur : `CLAUDE.md` §3 et `docs/U.LAB-ARCHITECTURE.md` v2.
 
 ---
 
