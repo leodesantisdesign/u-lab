@@ -6,10 +6,12 @@ export class History {
 	private lastGroupKey: string | null = null;
 	private lastPushAt = 0;
 	private readonly groupWindowMs: number;
+	private readonly maxEntries: number;
 
-	constructor(initial: Project, groupWindowMs = 400) {
+	constructor(initial: Project, groupWindowMs = 400, maxEntries = 100) {
 		this.past = [JSON.stringify(initial)];
 		this.groupWindowMs = groupWindowMs;
+		this.maxEntries = maxEntries;
 	}
 
 	get canUndo(): boolean {
@@ -33,6 +35,9 @@ export class History {
 			this.past[this.past.length - 1] = snapshot;
 		} else {
 			this.past.push(snapshot);
+			if (this.past.length > this.maxEntries) {
+				this.past.shift();
+			}
 		}
 
 		this.lastGroupKey = groupKey ?? null;

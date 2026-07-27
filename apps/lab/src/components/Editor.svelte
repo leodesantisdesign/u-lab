@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from 'svelte';
   import { DocumentStore, createProject } from '@ulab/core';
   import type { ModuleInstance, Project } from '@ulab/core';
   import { byType } from '@ulab/modules';
@@ -9,6 +10,7 @@
   import Inspector from '@ulab/ui/components/Inspector.svelte';
   import ToolsModal from '@ulab/ui/components/ToolsModal.svelte';
   import ModulationDrawer from '@ulab/ui/components/ModulationDrawer.svelte';
+  import ExportModal from '@ulab/ui/components/ExportModal.svelte';
   import Select from '@ulab/ui/components/Select.svelte';
   import Button from '@ulab/ui/components/Button.svelte';
 
@@ -46,49 +48,187 @@
 
   const store = new DocumentStore(buildDefaultProject());
 
-  function applyDefaults(instanceId: string, type: string): void {
-    const def = byType(type);
-    for (const param of def?.params ?? []) {
-      store.setParam(instanceId, param.key, param.default);
+  // Signal « quelque chose vient d'être branché » (design system §5) : le
+  // SEUL retour sur un changement de composition de la pile — ajout,
+  // retrait ou remplacement d'un module. Un simple réordonnancement par
+  // glisser-déposer ne rebranche rien, donc ne déclenche pas l'impulsion :
+  // la signature est triée par id, indépendante de l'ordre.
+  function stackSignature(stack: ModuleInstance[]): string {
+    return stack
+      .map((instance) => `${instance.id}:${instance.type}`)
+      .sort()
+      .join('|');
+  }
+
+  let lastStackSignature = stackSignature(store.project.stack);
+  let pulseToken = $state(0);
+
+  $effect(() => {
+    const signature = stackSignature(store.project.stack);
+    if (signature !== lastStackSignature) {
+      lastStackSignature = signature;
+      pulseToken++;
     }
+  });
+
+  function buildDefaults(type: string): Record<string, ModuleInstance['params'][string]> {
+    const def = byType(type);
+    const params: Record<string, ModuleInstance['params'][string]> = {};
+    for (const param of def?.params ?? []) {
+      params[param.key] = param.default;
+    }
+    return params;
   }
 
   function addModuleWithDefaults(type: string, atIndex?: number): void {
-    const id = store.addModule(type, atIndex);
-    applyDefaults(id, type);
+    store.addModule(type, buildDefaults(type), atIndex);
   }
 
   function handleReset() {
     const instance = store.selectedModule;
-    const def = instance ? byType(instance.type) : null;
-    if (!instance || !def) return;
-    for (const param of def.params) {
-      store.setParam(instance.id, param.key, param.default);
+    if (!instance) return;
+    store.resetParams(instance.id, buildDefaults(instance.type));
+  }
+
+  // Réordonnancement de la pile : Pointer Events (souris, tactile, stylet en un
+  // seul chemin). La poignée capture le pointeur ; en dessous de 4px de
+  // mouvement, ce n'est pas un déplacement (permet de cliquer sans glisser).
+  // L'insertion vise l'interstice le plus proche du pointeur, pas la ligne
+  // survolée : on compare la position du pointeur au milieu de chaque ligne
+  // (mesuré à l'ouverture du geste), jamais à ses bords.
+  const DRAG_THRESHOLD_PX = 4;
+
+  let selectRefs: Record<string, HTMLButtonElement> = {};
+
+  function registerSelectRef(id: string) {
+    return (element: HTMLButtonElement | null) => {
+      if (element) selectRefs[id] = element;
+      else delete selectRefs[id];
+    };
+  }
+
+  let dragFromIndex: number | null = $state(null);
+  let dragInsertIndex: number | null = $state(null);
+  let dragOffsetY = $state(0);
+  let isDragging = $state(false);
+  let announcement = $state('');
+
+  let dragPointerId: number | null = null;
+  let dragPendingIndex: number | null = null;
+  let dragStartClientY = 0;
+  let dragRowRects: DOMRect[] = [];
+  let dragSlotSize = 0;
+
+  function moveAndAnnounce(from: number, to: number) {
+    const instance = store.project.stack[from];
+    store.moveModule(from, to);
+    if (instance) {
+      const def = byType(instance.type);
+      announcement = `${def?.name ?? instance.type} déplacé en position ${to + 1} sur ${store.project.stack.length}`;
     }
   }
 
-  let draggedIndex: number | null = $state(null);
-
-  function handleDragStart(index: number, event: DragEvent) {
-    draggedIndex = index;
-    event.dataTransfer?.setData('text/plain', String(index));
-    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+  function computeInsertIndex(pointerClientY: number): number {
+    for (let i = 0; i < dragRowRects.length; i++) {
+      const rect = dragRowRects[i];
+      if (rect && pointerClientY < (rect.top + rect.bottom) / 2) return i;
+    }
+    return dragRowRects.length;
   }
 
-  function handleDragOver(event: DragEvent) {
-    event.preventDefault();
-    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+  function beginDrag(index: number) {
+    dragFromIndex = index;
+    dragInsertIndex = index;
+    isDragging = true;
+    dragRowRects = store.project.stack.map(
+      (instance) => selectRefs[instance.id]?.getBoundingClientRect() ?? new DOMRect(),
+    );
+    const first = dragRowRects[0];
+    const second = dragRowRects[1];
+    dragSlotSize = first && second ? second.top - first.top : (first?.height ?? 0);
   }
 
-  function handleDrop(index: number, event: DragEvent) {
-    event.preventDefault();
-    if (draggedIndex === null || draggedIndex === index) return;
-    store.moveModule(draggedIndex, index);
-    draggedIndex = null;
+  function handlePointerMove(event: PointerEvent) {
+    if (event.pointerId !== dragPointerId || dragPendingIndex === null) return;
+    const deltaY = event.clientY - dragStartClientY;
+
+    if (!isDragging) {
+      if (Math.abs(deltaY) < DRAG_THRESHOLD_PX) return;
+      beginDrag(dragPendingIndex);
+    }
+
+    dragOffsetY = deltaY;
+    dragInsertIndex = computeInsertIndex(event.clientY);
   }
 
-  function handleDragEnd() {
-    draggedIndex = null;
+  function endDrag(commit: boolean) {
+    window.removeEventListener('pointermove', handlePointerMove);
+    window.removeEventListener('pointerup', handlePointerUp);
+    window.removeEventListener('pointercancel', handlePointerCancel);
+
+    if (commit && isDragging && dragFromIndex !== null && dragInsertIndex !== null) {
+      const from = dragFromIndex;
+      const to = dragInsertIndex <= from ? dragInsertIndex : dragInsertIndex - 1;
+      if (to !== from) moveAndAnnounce(from, to);
+    }
+
+    dragPointerId = null;
+    dragPendingIndex = null;
+    isDragging = false;
+    dragFromIndex = null;
+    dragInsertIndex = null;
+    dragOffsetY = 0;
+    dragRowRects = [];
+  }
+
+  function handlePointerUp(event: PointerEvent) {
+    if (event.pointerId !== dragPointerId) return;
+    endDrag(true);
+  }
+
+  function handlePointerCancel(event: PointerEvent) {
+    if (event.pointerId !== dragPointerId) return;
+    endDrag(false);
+  }
+
+  function handleHandlePointerDown(index: number, event: PointerEvent) {
+    dragPendingIndex = index;
+    dragPointerId = event.pointerId;
+    dragStartClientY = event.clientY;
+    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    window.addEventListener('pointercancel', handlePointerCancel);
+  }
+
+  function rowTranslateY(index: number): number {
+    if (!isDragging || dragFromIndex === null || dragInsertIndex === null) return 0;
+    if (index === dragFromIndex) return dragOffsetY;
+    if (dragInsertIndex > dragFromIndex) {
+      return index > dragFromIndex && index < dragInsertIndex ? -dragSlotSize : 0;
+    }
+    if (dragInsertIndex < dragFromIndex) {
+      return index >= dragInsertIndex && index < dragFromIndex ? dragSlotSize : 0;
+    }
+    return 0;
+  }
+
+  function focusRow(id: string) {
+    tick().then(() => selectRefs[id]?.focus());
+  }
+
+  function handleMoveUp(index: number) {
+    if (index <= 0) return;
+    const instance = store.project.stack[index];
+    moveAndAnnounce(index, index - 1);
+    if (instance) focusRow(instance.id);
+  }
+
+  function handleMoveDown(index: number) {
+    if (index >= store.project.stack.length - 1) return;
+    const instance = store.project.stack[index];
+    moveAndAnnounce(index, index + 1);
+    if (instance) focusRow(instance.id);
   }
 
   let quality: 'Basse' | 'Moyenne' | 'Haute' = $state('Moyenne');
@@ -125,8 +265,7 @@
     if (toolsModal.mode === 'add') {
       addModuleWithDefaults(type);
     } else {
-      store.replaceModule(toolsModal.instanceId, type);
-      applyDefaults(toolsModal.instanceId, type);
+      store.replaceModule(toolsModal.instanceId, type, buildDefaults(type));
     }
     closeToolsModal();
   }
@@ -141,7 +280,7 @@
     ratio = next;
     const size = RATIOS[next];
     if (size) {
-      store.project.format = { ratio: next, width: size.width, height: size.height };
+      store.setFormat({ ratio: next, width: size.width, height: size.height });
     }
   }
 
@@ -150,6 +289,15 @@
   );
   const sourceDef = $derived(store.source ? (byType(store.source.type) ?? null) : null);
   const previewSize = $derived(RATIOS[ratio] ?? RATIOS['1:1']);
+
+  // L'onglet Vidéo de l'export dépend de la catégorie et du type de la
+  // SOURCE (stack[0]), pas d'un module quelconque de la pile.
+  const ANIMATED_SOURCE_TYPES = ['source.video', 'source.webcam'];
+  const animatedSource = $derived(
+    sourceDef?.category === 'source' && ANIMATED_SOURCE_TYPES.includes(sourceDef.type),
+  );
+
+  let showExportModal = $state(false);
 
   const modulationTargetOptions = $derived(
     store.project.stack.flatMap((instance) => {
@@ -208,11 +356,19 @@
         icon={moduleIcon}
         onClose={() => (store.selectedModuleId = null)}
         onReset={handleReset}
+        onParamChange={(key, value) => {
+          const instance = store.selectedModule;
+          if (instance) store.setParam(instance.id, key, value);
+        }}
+        onBlendChange={(blend) => {
+          const instance = store.selectedModule;
+          if (instance) store.setBlend(instance.id, blend);
+        }}
       />
     </div>
 
     <div class="editor__spine">
-      <div class="editor__stack">
+      <ul class="editor__stack" role="list">
         {#each store.project.stack as instance, index (instance.id)}
           {@const def = byType(instance.type)}
           <StackItem
@@ -220,22 +376,28 @@
             name={def?.name ?? instance.type}
             selected={store.selectedModuleId === instance.id}
             hidden={!instance.enabled}
-            dragging={draggedIndex === index}
-            draggable={true}
+            dragging={isDragging && dragFromIndex === index}
+            translateY={rowTranslateY(index)}
             onSelect={() => (store.selectedModuleId = instance.id)}
             onChange={() => openChangeModal(instance.id, instance.type)}
             onToggleHide={() => store.toggleModule(instance.id)}
             onRemove={() => store.removeModule(instance.id)}
-            onDragStart={(e) => handleDragStart(index, e)}
-            onDragOver={handleDragOver}
-            onDrop={(e) => handleDrop(index, e)}
-            onDragEnd={handleDragEnd}
+            onHandlePointerDown={(e) => handleHandlePointerDown(index, e)}
+            onMoveUp={() => handleMoveUp(index)}
+            onMoveDown={() => handleMoveDown(index)}
+            selectRef={registerSelectRef(instance.id)}
           />
         {/each}
-      </div>
+      </ul>
+      <div class="sr-only" aria-live="polite">{announcement}</div>
 
       <div class="editor__thread">
         <div class="editor__thread-line"></div>
+        {#if pulseToken}
+          {#key pulseToken}
+            <div class="editor__thread-pulse" aria-hidden="true"></div>
+          {/key}
+        {/if}
         <div class="editor__add">
           <AddButton onclick={openAddModal} />
         </div>
@@ -248,6 +410,7 @@
             width={previewSize.width}
             height={previewSize.height}
             label="Pile : {sourceDef?.name ?? '—'}"
+            pulseToken={pulseToken}
           >
             {#snippet children()}
               <img class="editor__preview-image" src="/placeholder.svg" alt="" />
@@ -266,7 +429,7 @@
           <Button variant="secondary" onclick={() => (showBefore = !showBefore)}>
             {showBefore ? 'Après' : 'Avant / après'}
           </Button>
-          <Button variant="primary">Exporter</Button>
+          <Button variant="primary" onclick={() => (showExportModal = true)}>Exporter</Button>
         </div>
       </div>
     </div>
@@ -297,6 +460,16 @@
     currentSourceType={store.source?.type ?? null}
     onPick={handlePick}
     onClose={closeToolsModal}
+  />
+{/if}
+
+{#if showExportModal}
+  <ExportModal
+    format={store.project.format}
+    duration={store.project.duration}
+    fps={store.project.fps}
+    animatedSource={animatedSource}
+    onClose={() => (showExportModal = false)}
   />
 {/if}
 
@@ -394,6 +567,21 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-8);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
 
   .editor__thread {
@@ -412,6 +600,33 @@
     width: 1px;
     background: var(--line);
     pointer-events: none;
+  }
+
+  /* Impulsion --accent qui parcourt le fil de haut en bas — le seul retour
+     « quelque chose vient d'être branché » (design system §5). {#key} force
+     un nouvel élément à chaque déclenchement pour rejouer l'animation. */
+  .editor__thread-pulse {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    width: 1px;
+    transform: translateX(-50%);
+    background: linear-gradient(to bottom, transparent, var(--accent), transparent);
+    background-size: 100% 50%;
+    background-repeat: no-repeat;
+    background-position: 0 -50%;
+    pointer-events: none;
+    animation: thread-pulse var(--dur-pulse) var(--ease);
+  }
+
+  @keyframes thread-pulse {
+    from {
+      background-position: 0 -50%;
+    }
+    to {
+      background-position: 0 150%;
+    }
   }
 
   .editor__add {

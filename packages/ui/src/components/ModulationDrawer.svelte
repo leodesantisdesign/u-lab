@@ -363,6 +363,17 @@
     transform: rotate(180deg);
   }
 
+  @keyframes drawer-in {
+    from {
+      opacity: 0;
+      transform: translateY(calc(var(--space-6) * -1));
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
   .modulation-drawer__body {
     display: flex;
     gap: var(--space-16);
@@ -370,6 +381,7 @@
     padding: var(--space-16);
     border-top: 1px solid var(--line);
     overflow-y: auto;
+    animation: drawer-in var(--dur) var(--ease);
   }
 
   .modulation-drawer__table {

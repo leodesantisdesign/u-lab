@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import type { ModuleDef } from '@ulab/modules';
-  import type { BlendMode, ModuleInstance } from '@ulab/core';
+  import type { BlendMode, ModuleInstance, ParamValue } from '@ulab/core';
   import SectionLabel from './SectionLabel.svelte';
   import ParamRow from './ParamRow.svelte';
   import Select from './Select.svelte';
@@ -25,13 +25,21 @@
     icon?: Snippet;
     onClose?: () => void;
     onReset?: () => void;
+    onParamChange?: (key: string, value: ParamValue) => void;
+    onBlendChange?: (blend: { mode: BlendMode; opacity: number }) => void;
   }
 
-  let { def, instance, icon, onClose, onReset }: Props = $props();
+  let { def, instance, icon, onClose, onReset, onParamChange, onBlendChange }: Props = $props();
 
   let activeTab: Tab = $state('commandes');
   let offset = $state({ x: 0, y: 0 });
   let dragStart: { x: number; y: number; originX: number; originY: number } | null = null;
+
+  const showEffectsTab = $derived(def ? def.category !== 'source' : false);
+
+  $effect(() => {
+    if (!showEffectsTab && activeTab === 'effets') activeTab = 'commandes';
+  });
 
   function startDrag(event: PointerEvent) {
     dragStart = { x: event.clientX, y: event.clientY, originX: offset.x, originY: offset.y };
@@ -54,8 +62,16 @@
     return instance ? instance.blend.mode : 'normal';
   }
 
+  function blendOpacity(): number {
+    return instance ? instance.blend.opacity : 1;
+  }
+
   function setBlendMode(mode: BlendMode) {
-    if (instance) instance.blend.mode = mode;
+    if (instance) onBlendChange?.({ mode, opacity: instance.blend.opacity });
+  }
+
+  function setBlendOpacity(opacity: number) {
+    if (instance) onBlendChange?.({ mode: instance.blend.mode, opacity });
   }
 </script>
 
@@ -87,24 +103,29 @@
       >
         Commandes
       </button>
-      <button
-        class="inspector__tab"
-        class:inspector__tab--active={activeTab === 'effets'}
-        role="tab"
-        aria-selected={activeTab === 'effets'}
-        onclick={() => (activeTab = 'effets')}
-      >
-        Effets
-      </button>
+      {#if showEffectsTab}
+        <button
+          class="inspector__tab"
+          class:inspector__tab--active={activeTab === 'effets'}
+          role="tab"
+          aria-selected={activeTab === 'effets'}
+          onclick={() => (activeTab = 'effets')}
+        >
+          Effets
+        </button>
+      {/if}
     </div>
 
     <div class="inspector__body">
-      {#if activeTab === 'commandes'}
+      {#if activeTab === 'commandes' || !showEffectsTab}
         {#if def.params.length === 0}
           <p class="inspector__body-empty">Ce module n'a aucun réglage.</p>
         {:else}
           {#each def.params as param (param.key)}
-            <ParamRow {param} bind:value={instance.params[param.key]} />
+            <ParamRow
+              {param}
+              bind:value={() => instance.params[param.key], (v) => onParamChange?.(param.key, v)}
+            />
           {/each}
         {/if}
       {:else}
@@ -114,7 +135,13 @@
           options={BLEND_MODE_OPTIONS}
           bind:value={() => blendMode(), setBlendMode}
         />
-        <SliderRow label="Opacité" bind:value={instance.blend.opacity} min={0} max={1} step={0.01} />
+        <SliderRow
+          label="Opacité"
+          bind:value={() => blendOpacity(), setBlendOpacity}
+          min={0}
+          max={1}
+          step={0.01}
+        />
       {/if}
     </div>
 

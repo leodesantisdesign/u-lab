@@ -123,7 +123,9 @@ U.LAB/
 ## 6. État actuel
 
 - **Étape 0 terminée** ✅ — monorepo pnpm + Astro, déployé sur Cloudflare Pages : **u-lab.pages.dev**, mis à jour à chaque push sur `main`.
-- **Étape 1 en cours** — bascule vers l'éditeur unique. Voir `docs/ETAPE-1.md`.
+- **Étape 1 terminée** ✅ — bascule vers l'éditeur unique : store, historique, inspecteur généré depuis les manifestes, modal de modules, aperçu, tiroir de modulation replié. Voir `docs/ETAPE-1.md`.
+- **Étape 1.5 terminée** ✅ — le store redevient l'unique propriétaire de l'état (plus aucune mutation directe du document depuis l'UI, un geste = une entrée d'historique), glisser-déposer de la pile en Pointer Events (souris/tactile/stylet) avec réordonnancement clavier, modal d'export statique, mouvement (apparition/disparition, impulsion du fil, ouverture des modals) en respectant `prefers-reduced-motion`. Voir `docs/ETAPE-1-5.md`.
+- **Étape 2 à venir** — le moteur : `packages/engine` en WebGL2 (ping-pong de framebuffers), et les trois premiers modules réellement branchés (`source.image`, `traitement.halftone`, `finition.grain`). Le store étant redevenu le point de passage unique, l'invalidation du rendu tient en une ligne : le document a changé → redessine.
 - **Ce qui survit du design system déjà commencé :** les tokens, les polices et les composants de base (`SectionLabel`, `SliderRow`, `Select`, `Button`, `Panel`) sont **valides et conservés**. Seule la mise en page d'écran change.
 - **Ce qui est abandonné :** l'idée d'une page par outil — la page `/u-dither` n'a jamais été construite, et ne le sera pas ; le dossier `tools/` est supprimé.
 - `_legacy/u-dither-v1/` = **legacy, à ne jamais étendre**. Sert de **référence fonctionnelle uniquement** (algorithmes, palettes, presets, vocabulaire des paramètres).
@@ -145,3 +147,9 @@ U.LAB/
 - *SPA complète (SvelteKit) écartée* — l'accueil et les pages d'effets n'ont aucune raison d'embarquer du JS. Astro les garde statiques et l'île n'est chargée que sur `/create`.
 - *Modules avec UI propre écartés* — un module qui dessine sa propre interface ramène le problème des quatre interfaces. L'UI est générée depuis le manifeste, sans exception.
 - *Bibliothèque d'état tierce écartée* — le document est un objet simple ; les runes Svelte 5 et des instantanés suffisent pour l'undo/redo.
+
+### Juillet 2026 — Étape 1.5 : le store redevient propriétaire de l'état
+
+**Aucun composant d'UI ne modifie le document directement : tout passe par une méthode du store.** Raison : c'est le seul point où le moteur pourra brancher l'invalidation du rendu (architecture §5). Décision négative associée : le `bind:` direct sur le document est interdit, même quand il marche.
+
+**Un geste utilisateur = une entrée d'historique.** Les valeurs par défaut arrivent à la création du module, pas par une série de `setParam` après coup.

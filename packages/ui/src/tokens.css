@@ -57,6 +57,7 @@
   --topbar-height: 48px;
   --drawer-bar-height: 40px;
   --modal-width: 664px;
+  --modal-width-sm: 420px;
   --vignette-size: 96px;
   --dropzone-height: 88px;
   --drawer-body-min-height: 280px;
@@ -77,11 +78,13 @@
   --ease: cubic-bezier(0.4, 0, 0.2, 1);
   --dur-fast: 150ms;
   --dur: 250ms;
+  --dur-pulse: 450ms;
 }
 
 @media (prefers-reduced-motion: reduce) {
   :root {
     --dur-fast: 0ms;
     --dur: 0ms;
+    --dur-pulse: 0ms;
   }
 }

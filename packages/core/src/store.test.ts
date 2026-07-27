@@ -16,7 +16,7 @@ describe('DocumentStore', () => {
 		const store = new DocumentStore();
 		store.addModule('source.image');
 		store.addModule('finition.grain');
-		const asciiId = store.addModule('traitement.ascii', 1);
+		const asciiId = store.addModule('traitement.ascii', {}, 1);
 
 		expect(store.project.stack.map((m) => m.type)).toEqual([
 			'source.image',
@@ -177,5 +177,84 @@ describe('DocumentStore', () => {
 		expect(modulation?.source).toEqual({ kind: 'video', signal: 'luma' });
 		expect(modulation?.sensitivity).toBe(0.8);
 		expect(modulation?.range).toEqual([10, 90]);
+	});
+
+	it('adding a module then undoing once removes it', () => {
+		const store = new DocumentStore();
+
+		store.addModule('source.image');
+		expect(store.project.stack).toHaveLength(1);
+
+		store.undo();
+		expect(store.project.stack).toHaveLength(0);
+	});
+
+	it('collapses fifty successive setParam calls on the same key into one history entry', () => {
+		const store = new DocumentStore();
+		const id = store.addModule('traitement.halftone');
+
+		for (let i = 0; i < 50; i++) {
+			store.setParam(id, 'frequency', i);
+		}
+
+		expect(store.project.stack[0]?.params.frequency).toBe(49);
+		store.undo();
+		expect(store.project.stack[0]?.params.frequency).toBeUndefined();
+	});
+
+	it('setParam on two different keys produces two history entries', () => {
+		const store = new DocumentStore();
+		const id = store.addModule('traitement.halftone');
+
+		store.setParam(id, 'frequency', 40);
+		store.setParam(id, 'angle', 30);
+
+		store.undo();
+		expect(store.project.stack[0]?.params.angle).toBeUndefined();
+		expect(store.project.stack[0]?.params.frequency).toBe(40);
+
+		store.undo();
+		expect(store.project.stack[0]?.params.frequency).toBeUndefined();
+	});
+
+	it('resetParams replaces the whole params block in one history entry', () => {
+		const store = new DocumentStore();
+		const id = store.addModule('traitement.halftone');
+		store.setParam(id, 'frequency', 40);
+		store.setParam(id, 'angle', 30);
+
+		store.resetParams(id, { frequency: 10, angle: 0 });
+
+		expect(store.project.stack[0]?.params).toEqual({ frequency: 10, angle: 0 });
+
+		store.undo();
+		expect(store.project.stack[0]?.params).toEqual({ frequency: 40, angle: 30 });
+	});
+
+	it('setFormat is undoable', () => {
+		const store = new DocumentStore();
+		const before = store.project.format;
+
+		store.setFormat({ ratio: '16:9', width: 1920, height: 1080 });
+		expect(store.project.format).toEqual({ ratio: '16:9', width: 1920, height: 1080 });
+
+		store.undo();
+		expect(store.project.format).toEqual(before);
+	});
+
+	it('never exceeds 100 history entries', () => {
+		const store = new DocumentStore();
+
+		for (let i = 0; i < 150; i++) {
+			store.addModule('finition.grain');
+		}
+
+		let undoCount = 0;
+		while (store.canUndo) {
+			store.undo();
+			undoCount++;
+		}
+
+		expect(undoCount).toBe(99);
 	});
 });
