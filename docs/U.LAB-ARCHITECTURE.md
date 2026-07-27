@@ -1,129 +1,247 @@
-# U.LAB — Architecture, découpage des outils & plan de migration
+# U.LAB — Architecture de l'éditeur unique
 
-> Complète et **remplace le §3 du brief** (`U.LAB-BRIEF.md`), qui envisageait encore une réutilisation de l'existant.
-> Décision : **on repart de zéro.** u.dither v1 sert de référence fonctionnelle, pas de base de code.
-> Juillet 2026.
-
----
-
-## 1. Pourquoi on ne garde pas u.dither v1
-
-L'existant : Vite + TypeScript vanilla, un `StudioPage.ts` de 833 lignes, une feuille de style de 1725 lignes, un Web Worker de 641 lignes, et surtout un **backend Python FastAPI** (`udither_api`) qui calcule tous les filtres côté serveur.
-
-Trois blocages structurels :
-
-1. **Le backend tue le temps réel.** Chaque changement de paramètre = un aller-retour réseau + un encodage/décodage d'image. Les outils de référence (Ditter, DASCA, artkit) traitent de la 4K en moins de 5 ms sur GPU. On ne rattrape pas cet écart en optimisant : il faut changer d'approche.
-2. **Le backend coûte de l'argent en permanence.** Un labo gratuit doit être un site statique, sinon l'hébergement devient un abonnement à vie pour toi.
-3. **Un seul outil fourre-tout.** `modes.ts` mélange `halftone`, `bayer`, `floyd_steinberg`, `atkinson` sous une même UI, avec une pile de FX par-dessus. Ce sont des procédés différents → c'est exactement ce que la règle « un outil = une idée » interdit.
-
-**Ce qu'on récupère quand même** (et c'est précieux) : les algorithmes et leurs paramètres, les palettes, les presets, le vocabulaire des réglages, et l'expérience de ce qui rend un rendu joli. On les réimplémente proprement.
+> **Remplace intégralement la version précédente** de ce document (découpage en outils séparés, plan d'étapes 0→6).
+> Complète et remplace aussi le §3 du brief (`U.LAB-BRIEF.md`).
+> Juillet 2026 — v2.
 
 ---
 
-## 2. La stack, et pourquoi elle
+## 1. Le renversement, en une phrase
 
-Résumé opérationnel dans `CLAUDE.md` §2. Ici, le raisonnement.
+**Avant :** N outils, N pages, N interfaces. L'utilisateur choisit un outil, subit son cadre, exporte, et recommence ailleurs s'il veut autre chose.
 
-### Astro (shell) + Svelte 5 (îlots)
-Un labo, c'est un site **multi-pages** : une accueil, une galerie, N pages d'outils. Astro applique l'architecture *islands* — les pages statiques n'expédient aucun JavaScript, et chaque page d'outil ne charge que le code de cet outil. C'est le meilleur profil pour du contenu + quelques zones très interactives, et ça évite qu'un visiteur de la page d'accueil télécharge le moteur d'effets. Astro a par ailleurs été racheté par Cloudflare en janvier 2026, ce qui aligne bien avec l'hébergement choisi.
+**Maintenant :** une galerie de modèles en entrée, **un éditeur unique** derrière. L'utilisateur charge une photo ou une vidéo, empile des modules, règle chacun d'eux, et exporte. Un module qu'on ajoute au catalogue devient immédiatement combinable avec tous les autres.
 
-Pour l'intérieur des outils (panneaux de contrôles réactifs), **Svelte 5** produit les bundles les plus légers des frameworks applicatifs. On peut aussi rester en TS vanilla pour un outil très simple — Astro accepte les deux.
+Ce que ça débloque concrètement :
 
-*Alternative écartée :* Next.js, calibré pour des applis authentifiées côté serveur ; hors sujet pour un site statique d'outils.
+| | Modèle « une page par outil » | Modèle éditeur unique |
+|---|---|---|
+| Enchaîner dither + grain | Exporter, recharger, refaire | Deux lignes dans la pile |
+| Ajouter un procédé | Concevoir un écran complet | Un manifeste + un shader |
+| Apprendre l'outil | Une fois par outil | Une fois, pour toujours |
+| Cohérence visuelle | À maintenir à la main sur N écrans | Structurelle |
+| Coût d'un module raté | Une page morte à maintenir | Une ligne retirée du registre |
 
-### WebGL2 en socle, WebGPU en option
-WebGL2 fonctionne dans **tous** les navigateurs majeurs par défaut. WebGPU tourne autour de **82 %** de couverture (Safari 26 l'a ajouté en septembre 2025 ; **Firefox reste désactivé par défaut** mi-2026). La stratégie de référence en 2026, c'est donc : WebGL2 comme socle garanti, chemin WebGPU détecté via `navigator.gpu` là où il apporte quelque chose (compute shaders → pixel sorting, traitements lourds).
-
-### Le pipeline d'effets
-Le cœur de `packages/engine` : une **chaîne d'effets empilables**, chaque effet étant un fragment shader qui prend la texture précédente et produit la suivante. C'est exactement le modèle de `basementstudio/shader-lab` (open source, à étudier avant d'écrire quoi que ce soit). Pour éviter le WebGL brut sans embarquer un moteur 3D : **ogl** ou **regl** sont les bons candidats ; three.js est surdimensionné pour du 2D plein écran.
-
-### Export
-- **Image :** `canvas.toBlob()`, rendu à pleine résolution hors aperçu.
-- **Vidéo : WebCodecs** — encodage matériel, environ **20× plus rapide** que ffmpeg.wasm, avec un muxer JS type `mp4-muxer` pour produire le conteneur. Fallback `canvas.captureStream()` + `MediaRecorder` en WebM.
-- ⚠️ **À vérifier avant de promettre du MP4 :** l'état exact du support WebCodecs dans Safari à la date de l'implémentation. WebCodecs et `SharedArrayBuffer` nécessitent HTTPS.
-
-### Hébergement
-**Cloudflare Pages.** Site statique → pas de serveur, pas de facture qui grimpe avec le succès. C'est la plateforme la plus généreuse en bande passante sur le tier gratuit (à noter : un plafond de 100 Go/mois a été introduit en juin 2026 sur les domaines gratuits — largement suffisant, et à surveiller si un outil perce).
+**La règle « un procédé = une idée » ne saute pas** — elle descend au niveau du module. Un module `traitement.halftone` ne contient pas d'onglet « et aussi du dithering ». C'est plus strict qu'avant.
 
 ---
 
-## 3. Découpage des outils
+## 2. Ce qu'on a relevé chez Sketch, et ce qu'on en garde
 
-Application de la règle « un outil = une idée ». Ce qui était u.dither v1 devient plusieurs outils, plus des briques partagées.
+Analyse de [tools.sketchdesign.club](https://tools.sketchdesign.club/) (inspection DOM/CSS + parcours de l'éditeur, juillet 2026).
 
-### Ce qui reste dans **u.dither**
-**Idée : réduire la profondeur de couleur en distribuant l'erreur.** C'est *un* procédé cohérent, même s'il a deux familles :
-- **Ordered / Bayer** (matrices 2×2 → 8×8) → fragment shader.
-- **Error diffusion** (Floyd–Steinberg, Atkinson, et les autres classiques) → Web Worker CPU.
-- **Quantification de palette** (le dithering n'a de sens que relativement à une palette cible).
+**Leur mécanique, dans l'ordre :**
 
-Ces trois éléments répondent à la même question — « comment représenter cette image avec moins de couleurs ? » — donc ils restent ensemble. C'est ça, une idée forte.
+1. **Accueil** = « Start New Project » + galerie de modèles (17 vignettes animées). Les projets sont locaux ; le multi-projets est vendu en Premium.
+2. **Éditeur** (`/#tools`), une seule surface :
+   - **La pile**, centrée en haut : lignes empilables `icône + nom + [Changer] + [⋮]`, poignée de glissement à gauche, bouton `+` en dessous, reliée à l'aperçu par un fil vertical.
+   - `[⋮]` ne propose que deux actions : **Cacher** et **Retirer**. Rien de plus.
+   - `[Changer]` remplace le module par un autre de la même catégorie, en conservant sa position.
+   - **L'inspecteur**, panneau flottant à gauche, déplaçable et fermable, avec deux onglets : **Commandes** et **Effets**. Il affiche le module sélectionné, et rien d'autre.
+   - **Le modal « Outils »**, ouvert par `+` : trois colonnes — `ENTRÉES` (liste, choix unique, coche sur l'actif), `GÉNÉRATIF` et `FILTRES` (grilles de vignettes visuelles). Un module déjà présent apparaît grisé.
+   - **L'aperçu**, étiquette de pile en haut à gauche, sélecteur de ratio en haut à droite, et sous lui : bascule d'affichage, Publier, **Exporter**.
+   - **Le tiroir d'automation** en bas, replié par défaut : chaque ligne = `paramètre ciblé | source de modulation | sensibilité | plage de valeurs | piste sur la timeline`. La timeline est graduée **en temps et en mesures**. Une ligne en mode `Automation` affiche une vraie courbe à points.
+   - **Qualité d'aperçu** en haut à gauche (Basse / Moyenne / Haute + images par seconde), assumée devant l'utilisateur.
+3. **Export** : onglets Vidéo / Image, qualité (jusqu'à 4K), format, débit, images par seconde, durée, et une ligne d'info honnête — `Res 1.5K × 1.5K · Size 17.9 MB · Codec H.264 4.1`.
 
-### Ce qui sort en outils séparés
+**Ce qu'on prend :** toute la mécanique ci-dessus. Elle est juste, éprouvée, et c'est exactement ce que Léo avait en tête.
 
-| Nouvel outil | Idée | Pourquoi c'est un autre outil | Chemin technique |
-|---|---|---|---|
-| **u.halftone** | Trames d'impression : points/lignes, angle, fréquence, séparation CMJN | Le halftone simule un **procédé d'impression** (rotation de trames), pas une réduction de couleurs. Paramètres et mentalité totalement différents. | Fragment shader |
-| **u.ascii** | Image → mosaïque de caractères | Le résultat est **du texte**, pas des pixels. Jeu de glyphes, métrique de police, export texte : rien à voir. | Fragment shader + atlas de glyphes |
-| **u.sort** | Pixel sorting (seuils, direction, masques) | Réordonne les pixels au lieu de les requantifier. Nouveau, aligné avec DASCA. | **WebGPU compute** (dégradation propre si absent) |
+**Ce qu'on ne prend pas :** le paywall, les exports comptés, le compte obligatoire, le filigrane, et leur domaine (audio-réactif génératif).
 
-### Ce qui devient une brique partagée, pas un outil
-La pile de post-FX de v1 (grain, bruit, scanlines, vignette, netteté, décalage chromatique, posterize) **n'est pas une idée d'outil** : c'est une **couche de finition**. Elle va dans `packages/engine` et chaque outil en expose un sous-ensemble discret et cohérent. Idem pour les **palettes** (`packages/palette`), utilisées par dither, halftone et ascii.
-
-*Si un jour tu veux vraiment un outil de glitch*, ce sera **u.glitch** avec sa propre idée forte (corruption de données, datamosh) — pas un fourre-tout d'effets résiduels.
-
-**Ordre de construction conseillé :** `u.dither` (valide le moteur et l'UI) → `u.halftone` (quasi gratuit une fois le moteur là) → `u.ascii` → `u.sort` (ouvre la voie WebGPU).
-
----
-
-## 4. Plan de migration
-
-**Étape 0 — Fondations.** Monorepo pnpm, app Astro, déploiement Cloudflare Pages d'une page vide. But : avoir une URL en ligne dès le jour 1, pour que tout le reste soit vérifiable en vrai.
-
-**Étape 1 — Le moteur.** `packages/engine` : contexte WebGL2, quad plein écran, chaîne d'effets empilables, chargement d'image, boucle de rendu, aperçu à résolution réduite + rendu pleine résolution pour l'export. Un shader bidon suffit à valider.
-
-**Étape 2 — Le design system.** `packages/ui` : tokens (typo, couleurs, espacements), slider, select, upload, zone d'aperçu, barre d'export. C'est ici que vit ta patte visuelle. Tout outil futur s'y branche.
-
-**Étape 3 — u.dither.** Bayer + palette en shaders ; error diffusion en Worker ; post-FX minimal ; export image. C'est le test grandeur nature de l'architecture.
-
-**Étape 4 — Le shell.** Accueil du labo, page par outil, navigation cohérente. Une fois qu'il y a quelque chose à montrer.
-
-**Étape 5 — Export vidéo.** WebCodecs + muxer, avec fallback. Branché dans `packages/export`, donc disponible pour tous les outils d'un coup.
-
-**Étape 6 — Outils suivants.** u.halftone, puis u.ascii, puis u.sort.
-
-**Règle :** on ne démarre pas une étape sans que la précédente soit déployée et vérifiable en ligne. Un outil livré et beau > cinq à moitié faits.
+**Ce qu'on ajoute :**
+- **Photo et vidéo comme sujet**, pas comme accessoire — sources image/vidéo/webcam de premier ordre, export vidéo déterministe.
+- **Des signaux extraits du média** comme sources de modulation : luminance, mouvement, contraste. C'est l'équivalent de leur audio-réactivité, transposé à notre domaine — et personne ne le fait.
+- **Des pages publiques par effet** (`/effets/halftone`) : démo, explication du procédé, exemples, puis « Ouvrir dans l'éditeur ». Surface de découverte et de référencement qu'un éditeur en SPA n'a pas.
 
 ---
 
-## 5. Claude Code ou Cowork : lequel, quand
+## 3. Le modèle de document
 
-Il n'y a pas deux comptes à relier — c'est **le repo et ce `CLAUDE.md` qui font le pont**. Les deux environnements lisent les mêmes fichiers. La vraie question est : lequel est le bon outil pour la tâche du moment.
+C'est la pièce centrale. Tout le reste en découle : l'UI l'affiche, le moteur l'exécute, le fichier `.ulab` le sérialise, l'undo/redo en prend des instantanés.
 
-**Claude Code (CLI, dans ton terminal / VS Code) — pour le code.**
-- Écrire et refactorer du code sur plusieurs fichiers.
-- Faire tourner le serveur de dev, les builds, les tests, et **itérer sur les erreurs**.
-- Travailler avec git : branches, diffs, commits, PR.
-- Le *plan mode* (`Shift+Tab` ×2) avant toute grosse modification.
-- Les sessions longues où le contexte du dépôt compte.
+```ts
+type Project = {
+  id: string
+  name: string
+  version: 1                       // version de schéma, pour la migration
+  createdAt: number
+  updatedAt: number
 
-**Cowork (ici) — pour tout ce qui entoure le code.**
-- La recherche et la veille (comme ce document).
-- Les décisions d'architecture, les arbitrages, les briefs.
-- Les documents et livrables (Markdown, PDF, decks).
-- Regarder des images/références, discuter direction artistique.
-- Rédiger et maintenir `CLAUDE.md` lui-même.
+  format: { ratio: string; width: number; height: number }
+  duration: number                 // en secondes ; 0 pour une image fixe
+  fps: number
 
-**En pratique :** tu décides *quoi* faire ici, puis tu fais *faire* là-bas. Cowork produit le plan et le contexte ; Claude Code exécute dans le repo. Et quand une décision est prise d'un côté, **elle atterrit dans `CLAUDE.md`** — c'est comme ça que les deux restent synchronisés.
+  stack: ModuleInstance[]          // index 0 = source, puis dans l'ordre de rendu
+  modulations: Modulation[]
+  media: MediaRef[]                // pointeurs vers les blobs stockés dans IndexedDB
+}
+
+type ModuleInstance = {
+  id: string                       // uuid de l'instance
+  type: string                     // 'traitement.halftone' — identifiant stable, jamais renommé
+  enabled: boolean                 // « Cacher »
+  params: Record<string, ParamValue>
+  blend: { mode: BlendMode; opacity: number }   // commun à tous les modules non-source
+}
+
+type Modulation = {
+  id: string
+  enabled: boolean
+  target: { moduleId: string; paramKey: string }
+  source: ModSource
+  sensitivity: number              // 0..1
+  range: [number, number]          // remappage vers la plage utile du paramètre
+}
+
+type ModSource =
+  | { kind: 'keyframes'; points: { t: number; value: number; ease: Ease }[] }
+  | { kind: 'audio';  band: 'low' | 'mid' | 'high' | 'rms'; smoothing: number }
+  | { kind: 'video';  signal: 'luma' | 'motion' | 'contrast'; region?: Rect }
+```
+
+**Trois principes à ne jamais enfreindre :**
+
+1. **Le document est sérialisable en JSON, sans exception.** Aucune fonction, aucune texture, aucun handle GPU dedans. Les médias sont des références ; les blobs vivent dans IndexedDB.
+2. **`type` et `paramKey` sont des contrats publics.** Ils sont écrits dans les fichiers `.ulab` des utilisateurs. On peut ajouter un paramètre, jamais en renommer un. Un changement cassant ⇒ `version` incrémentée + fonction de migration.
+3. **Une seule source, en tête de pile.** Changer de source ne détruit pas le reste de la pile. C'est ce qui permet d'appliquer un modèle à sa propre photo en un clic — le geste le plus important du produit.
+
+**Résolution d'un paramètre à l'instant `t` :**
+
+```
+valeur_finale = params[clé]  ⟶  si une modulation cible ce paramètre :
+                                remap(source.échantillon(t) × sensibilité, range)
+```
+
+Le paramètre statique reste la valeur de repli. Désactiver une modulation restitue exactement la valeur réglée à la main — **ne jamais écraser `params` avec une valeur modulée.**
+
+---
+
+## 4. Le registre de modules
+
+Un module se déclare, il ne se code pas.
+
+```ts
+export const halftone: ModuleDef = {
+  type: 'traitement.halftone',
+  category: 'traitement',
+  name: 'Halftone',
+  summary: 'Trame d\'impression : points, lignes, angle, fréquence.',
+  thumbnail: './thumb.webp',
+  params: [
+    { key: 'frequency', label: 'Fréquence', type: 'number',
+      min: 4, max: 200, step: 1, default: 40, unit: 'lpi' },
+    { key: 'angle',     label: 'Angle',     type: 'number',
+      min: 0, max: 180, step: 1, default: 45, unit: '°' },
+    { key: 'shape',     label: 'Forme',     type: 'enum',
+      options: ['point', 'ligne', 'losange', 'carré'], default: 'point' },
+    { key: 'sharpness', label: 'Netteté',   type: 'number',
+      min: 0, max: 1, step: 0.01, default: 0.5 },
+  ],
+  render: { kind: 'shader', fragment: halftoneFrag },
+}
+```
+
+**`render.kind`** vaut `'shader'` (fragment WebGL2), `'worker'` (CPU, pour l'error diffusion) ou `'compute'` (WebGPU, pour le pixel sort). Le moteur route ; le module ne sait pas comment il est exécuté.
+
+**Types de paramètre :** `number` (curseur), `enum` (select), `boolean` (interrupteur), `color`, `point` (deux valeurs, pincé sur l'aperçu), `curve`, `text`, `file`.
+
+**Ce qu'un module n'a pas le droit de faire :** dessiner une interface, lire le store, déclencher un export, connaître les autres modules. S'il en a besoin, c'est que la capacité manque au moteur — elle remonte dans `packages/engine`, elle ne descend pas dans le module.
+
+### Taxonomie (les trois colonnes du modal)
+
+| Catégorie | Rôle | Modules |
+|---|---|---|
+| **SOURCE** | Produit l'image de départ. **Une seule à la fois**, en tête de pile. | Image · Vidéo · Webcam · Couleur / Dégradé · Texte |
+| **TRAITEMENT** | Transforme la nature de l'image. C'est le cœur du labo. | Dither · Halftone · ASCII · Pixel sort · Pixellisation · Postérisation · Seuil · Palette / Duotone · Glitch |
+| **FINITION** | Habille sans transformer. Cumulable sans limite. | Grain · Bruit · Scanlines · Vignette · Netteté · Aberration chromatique · Bloom · Courbes · Balance des couleurs |
+
+La colonne SOURCE est une **liste à choix unique** (comme leurs `ENTRÉES`), les deux autres sont des **grilles de vignettes**. Un module déjà dans la pile apparaît grisé.
+
+*Une quatrième catégorie **COMPOSITION** (masque, fusion de deux branches, transformation) est prévue mais **hors périmètre pour l'instant** : elle transforme la pile linéaire en graphe, et c'est un autre problème. À ne pas anticiper dans le code.*
+
+---
+
+## 5. Le pipeline de rendu
+
+```
+source ──▶ [texture]
+             │
+             ├─▶ module 1 ─▶ FBO A
+             ├─▶ module 2 ─▶ FBO B      (ping-pong entre deux FBO)
+             ├─▶ module 3 ─▶ FBO A
+             │
+             └─▶ écran (aperçu, résolution réduite)
+                 ou readback (export, pleine résolution)
+```
+
+Une boucle, un quad plein écran, deux framebuffers qu'on alterne. Chaque module actif = une passe. Les modules `worker` sortent de la chaîne GPU le temps d'un aller-retour `ImageData` puis y rentrent comme texture.
+
+**Règles de performance :**
+
+- **L'aperçu tourne à résolution réduite** selon le sélecteur de qualité (Basse ≈ 512 px, Moyenne ≈ 1024 px, Haute = taille d'affichage). L'export ignore ce réglage et rend à pleine résolution.
+- **On ne redessine que si quelque chose a changé** — sauf si la source est animée (vidéo, webcam) ou qu'une modulation est active. Une photo statique sans modulation ne doit pas consommer de GPU au repos.
+- **Un module `worker` est *debouncé*** (~120 ms) : on ne relance pas l'error diffusion à chaque pixel de déplacement de curseur. Pendant le calcul, on affiche le résultat précédent — jamais un écran vide.
+- **Les uniformes sont mis à jour, pas recompilés.** Un shader se compile une fois, au moment où le module entre dans la pile.
+
+**Export vidéo (déterministe, pas de capture d'écran) :** pour chaque image `n`, on décode l'image source correspondante (`VideoDecoder`), on échantillonne toutes les modulations à `t = n / fps`, on rend à pleine résolution, on pousse le `VideoFrame` dans `VideoEncoder`, on muxe. Le résultat est identique quelle que soit la machine, et indépendant de la vitesse de rendu.
+
+---
+
+## 6. Découpage des paquets
+
+| Paquet | Contient | Ne contient jamais |
+|---|---|---|
+| `core` | Types du document, store réactif, historique undo/redo, sérialisation `.ulab`, persistance IndexedDB, migrations de schéma | Du WebGL, du DOM |
+| `engine` | Contexte WebGL2/WebGPU, ping-pong FBO, gestion des sources, boucle de rendu, readback, exécution des workers | La connaissance d'un module particulier |
+| `modules` | Un dossier par module : manifeste, shader, vignette. Plus l'index du registre | De l'UI, de l'état, de l'export |
+| `modulation` | Échantillonnage des keyframes, analyse audio (`AnalyserNode` / hors-ligne), extraction des signaux vidéo, résolution `paramètre × t → valeur` | Du rendu |
+| `palette` | Palettes nommées et quantification, partagées par dither, halftone, ASCII et duotone | Du rendu, de l'UI |
+| `ui` | Design system + inspecteur généré depuis les manifestes + surfaces de l'éditeur | De la logique métier |
+| `export` | Image (`toBlob`) et vidéo (WebCodecs, muxer, fallback) | Du rendu (il appelle `engine`) |
+
+**Sens des dépendances :** `ui → core`, `engine → core`, `modulation → core`, `export → engine + core`, `modules → palette` (et rien d'autre). **Aucun cycle.** `modules` ne dépend de rien qui bouge : c'est ce qui garantit qu'un module reste une déclaration.
+
+---
+
+## 7. Plan d'étapes
+
+L'ancien plan (0→6) est caduc. Le nouveau :
+
+**Étape 0 — Fondations** ✅ *terminée.* Monorepo pnpm, app Astro, déploiement Cloudflare Pages.
+
+**Étape 1 — La coquille de l'éditeur, sans moteur.** Modèle de document + store, et l'écran `/create` complet en statique : pile, inspecteur généré, modal de modules, aperçu, tiroir d'automation replié, barre d'export. Une image en dur dans l'aperçu. → `docs/ETAPE-1.md`
+
+*Pourquoi sans moteur : la mécanique **est** le produit. Il faut la sentir dans un vrai navigateur avant de câbler du GPU dessus. Si l'enchaînement des gestes ne va pas, ça se corrige en dix minutes à ce stade, et en trois jours après.*
+
+**Étape 2 — Le moteur et trois modules.** WebGL2, ping-pong, `source.image`, `traitement.halftone`, `finition.grain`. Le premier vrai rendu, et la preuve que le manifeste suffit à générer l'UI.
+
+**Étape 3 — Les projets.** IndexedDB, accueil « mes projets », modèles, import/export `.ulab`, undo/redo. À partir de là, U.LAB est utilisable.
+
+**Étape 4 — La vidéo.** `source.video`, lecture image par image, durée et timeline, export WebCodecs avec fallback WebM.
+
+**Étape 5 — La modulation.** Keyframes d'abord, puis les signaux vidéo, puis l'audio. C'est la fonctionnalité qui fait dire « ah, d'accord ».
+
+**Étape 6 — Le catalogue.** Les modules restants, puis les pages `/effets/[slug]`.
+
+**Règle inchangée :** on ne démarre pas une étape sans que la précédente soit déployée et vérifiable en ligne. Un éditeur livré et beau > cinq à moitié faits.
+
+---
+
+## 8. Les pièges connus de cette architecture
+
+- **Le manifeste qui ne suffit plus.** Un jour, un module aura besoin d'un contrôle qui n'existe pas (une courbe éditable, un sélecteur de zone). Réflexe correct : **ajouter un type de paramètre** au vocabulaire commun. Réflexe interdit : laisser ce module dessiner son propre panneau — c'est par là que l'architecture se défait.
+- **La pile linéaire.** Elle ne fait pas de branches ni de masques. C'est un choix, pas un oubli. Le jour où il faut vraiment des branches, c'est une refonte assumée en graphe — pas un `if` glissé dans le pipeline.
+- **La vidéo change tout le calcul de perf.** Un module qui tient 60 fps sur une photo peut s'effondrer sur une vidéo 4K. Mesurer sur vidéo dès l'étape 4, pas après avoir écrit dix modules.
+- **L'error diffusion sur vidéo.** Séquentielle, donc CPU, donc lente, et en plus instable d'une image à l'autre (le bruit « grouille »). Prévoir un bruit bleu figé comme option de stabilisation, et l'assumer comme une limite documentée si ça ne tient pas.
+- **IndexedDB a des quotas.** Une vidéo source de 500 Mo dans un projet, et le navigateur commence à refuser. Prévoir un message honnête et une option « lier le fichier sans le copier ».
 
 ---
 
 ## Sources
 
-- [Astro vs SvelteKit vs Next.js 2026](https://www.pkgpulse.com/guides/nextjs-vs-astro-vs-sveltekit-2026) · [Astro vs Next.js — poids JS mesuré](https://tech-insider.org/astro-vs-nextjs-2026/) · [Guide de décision framework 2026](https://pockit.tools/blog/nextjs-vs-remix-vs-astro-vs-sveltekit-2026-comparison/)
-- [WebGPU Browser Support 2026](https://webo360solutions.com/blog/webgpu-browser-support/) · [WebGL 2 Browser Support 2026](https://www.testmuai.com/learning-hub/webgl-2-browser-compatibility/) · [WebGL vs WebGPU performance](https://www.volumeshader.dev/en/blog/webgl-vs-webgpu)
-- [Cloudflare Pages — limites & tarifs 2026](https://www.devtoolreviews.com/reviews/cloudflare-pages-pricing-bandwidth-limits-2026) · [Comparatif Vercel / Netlify / Cloudflare 2026](https://www.devtoolreviews.com/reviews/vercel-vs-netlify-vs-cloudflare-pages-pricing-comparison-2026)
-- [WebCodecs vs ffmpeg.wasm](https://burnsub.com/blog/webcodecs-vs-ffmpeg-wasm/) · [WebCodecs vs FFmpeg WASM — éditeurs vidéo navigateur](https://vidstudio.app/blog/webcodecs-vs-ffmpeg-wasm) · [mp4-wasm](https://github.com/mattdesl/mp4-wasm)
-- [basementstudio/shader-lab](https://github.com/basementstudio/shader-lab) · [Codrops — Real-Time Dithering Shader](https://tympanus.net/codrops/2025/06/04/building-a-real-time-dithering-shader/) · [Codrops — Efecto : ASCII & dithering WebGL](https://tympanus.net/codrops/2026/01/04/efecto-building-real-time-ascii-and-dithering-effects-with-webgl-shaders/) · [Real-Time Pixel Sorting in the Browser (WebGPU)](https://lukecochrane.com/blog/pixel-sorting) · [Ditter](https://ditterstudio.com/)
-- [Best practices for Claude Code](https://code.claude.com/docs/en/best-practices) · [Claude Code power user tips](https://support.claude.com/en/articles/14554000-claude-code-power-user-tips)
-- Code local analysé : `U.LAB/U.DITHER/app/web` (`modes.ts`, `presets.ts`, `StudioPage.ts`, `renderWorker.ts`) et `U.LAB/U.DITHER/app/api` (`udither_api`).
+- Analyse directe de [tools.sketchdesign.club](https://tools.sketchdesign.club/) — DOM, CSS et parcours complet de l'éditeur (galerie, pile, modal Outils, inspecteur, tiroir d'automation, modal d'export), juillet 2026.
+- [Astro vs SvelteKit vs Next.js 2026](https://www.pkgpulse.com/guides/nextjs-vs-astro-vs-sveltekit-2026) · [WebGPU Browser Support 2026](https://webo360solutions.com/blog/webgpu-browser-support/) · [Cloudflare Pages — limites & tarifs 2026](https://www.devtoolreviews.com/reviews/cloudflare-pages-pricing-bandwidth-limits-2026)
+- [WebCodecs vs ffmpeg.wasm](https://burnsub.com/blog/webcodecs-vs-ffmpeg-wasm/) · [mp4-wasm](https://github.com/mattdesl/mp4-wasm)
+- [basementstudio/shader-lab](https://github.com/basementstudio/shader-lab) — modèle de chaîne d'effets à étudier avant d'écrire `packages/engine`.
+- [Codrops — Real-Time Dithering Shader](https://tympanus.net/codrops/2025/06/04/building-a-real-time-dithering-shader/) · [Codrops — ASCII & dithering WebGL](https://tympanus.net/codrops/2026/01/04/efecto-building-real-time-ascii-and-dithering-effects-with-webgl-shaders/) · [Real-Time Pixel Sorting (WebGPU)](https://lukecochrane.com/blog/pixel-sorting)
+- Code local de référence : `_legacy/u-dither-v1/` (`modes.ts`, `presets.ts`) — algorithmes, palettes et vocabulaire des paramètres à réimplémenter proprement.

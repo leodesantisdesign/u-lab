@@ -1,0 +1,26 @@
+---
+import '@ulab/ui/index.css';
+import Editor from '../components/Editor.svelte';
+---
+
+<html lang="fr">
+	<head>
+		<meta charset="utf-8" />
+		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+		<link rel="icon" href="/favicon.ico" />
+		<meta name="viewport" content="width=device-width" />
+		<meta name="generator" content={Astro.generator} />
+		<title>U.LAB — Créer</title>
+	</head>
+	<body>
+		<Editor client:only="svelte" />
+	</body>
+</html>
+
+<style>
+	body {
+		background: var(--bg-0);
+		color: var(--ink);
+		font-family: var(--font-sans);
+	}
+</style>

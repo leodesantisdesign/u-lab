@@ -1,0 +1,87 @@
+:root {
+  /* Surfaces */
+  --bg-0: #0a0a09;
+  --bg-1: #161714;
+  --bg-2: #1f211d;
+  --line: #32352f;
+
+  /* Encre */
+  --ink: #f7f7f3;
+  --ink-muted: #a6aa9b;
+  --ink-faint: #6e7268;
+
+  /* Accent */
+  --accent: #ff6606;
+  --accent-ink: #0a0a09;
+  --danger: #ff441a;
+
+  /* Rayons */
+  --r-sm: 2px;
+  --r: 6px;
+  --r-lg: 8px;
+
+  /* Typographie — familles */
+  --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SF Mono", monospace;
+
+  /* Typographie — tailles */
+  --t-micro: 10px;
+  --t-label: 11px;
+  --t-sm: 12px;
+  --t-base: 14px;
+  --t-h4: 16px;
+  --t-h3: 20px;
+  --t-h2: 28px;
+  --t-h1: 36px;
+
+  /* Espacements — échelle fixe, aucune valeur hors de cette liste */
+  --space-4: 4px;
+  --space-6: 6px;
+  --space-8: 8px;
+  --space-10: 10px;
+  --space-12: 12px;
+  --space-16: 16px;
+  --space-20: 20px;
+  --space-24: 24px;
+
+  /* Dimensions de contrôle */
+  --panel-width: 244px;
+  --stack-width: 252px;
+  --stack-height: 37px;
+  --control-height: 28px;
+  --button-height: 34px;
+  --button-padding: 6px 14px;
+  --thumb-size: 14px;
+  --track-height: 2px;
+  --tap-target-min: 44px;
+  --topbar-height: 48px;
+  --drawer-bar-height: 40px;
+  --modal-width: 664px;
+  --vignette-size: 96px;
+  --dropzone-height: 88px;
+  --drawer-body-min-height: 280px;
+  --switch-width: 32px;
+  --switch-height: 18px;
+
+  /* Typographie — interlettrage */
+  --tracking-label: 0.66px;
+
+  /* Focus */
+  --focus-offset: 2px;
+
+  /* Élévation */
+  --shadow: 0 1px 6px rgba(0, 0, 0, 0.5);
+  --backdrop: color-mix(in srgb, var(--bg-0) 60%, transparent);
+
+  /* Mouvement */
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --dur-fast: 150ms;
+  --dur: 250ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-fast: 0ms;
+    --dur: 0ms;
+  }
+}

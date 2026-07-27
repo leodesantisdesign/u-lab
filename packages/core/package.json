@@ -1,0 +1,23 @@
+{
+  "name": "@ulab/core",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "peerDependencies": {
+    "svelte": "^5.0.0"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "7.2.0",
+    "@types/node": "^26.1.1",
+    "svelte": "^5.56.8",
+    "typescript": "^6.0.3",
+    "vite": "8.1.5",
+    "vitest": "^4.1.10"
+  }
+}

@@ -3,6 +3,8 @@
 > Objectif : **une URL publique en ligne**, mise à jour automatiquement à chaque `git push`.
 > À la fin, le site sera quasi vide — c'est voulu : on valide toute la chaîne avant d'écrire le moindre effet.
 > Version 2 — réécrite après ton rangement des dossiers.
+>
+> ⚠️ **Document historique — étape terminée en juillet 2026.** Il décrit le repo tel qu'il était *avant* la bascule vers l'éditeur unique : le dossier `tools/` qu'il met en place a depuis été supprimé. Pour la structure en vigueur, voir `CLAUDE.md` §3.
 
 ---
 
