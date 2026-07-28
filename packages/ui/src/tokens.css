@@ -34,6 +34,9 @@
   --t-h2: 28px;
   --t-h1: 36px;
 
+  /* Typographie — largeur de lecture confortable pour un paragraphe */
+  --measure: 32em;
+
   /* Espacements — échelle fixe, aucune valeur hors de cette liste */
   --space-4: 4px;
   --space-6: 6px;

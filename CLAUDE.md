@@ -125,7 +125,7 @@ U.LAB/
 - **Étape 0 terminée** ✅ — monorepo pnpm + Astro, déployé sur Cloudflare Pages : **u-lab.pages.dev**, mis à jour à chaque push sur `main`.
 - **Étape 1 terminée** ✅ — bascule vers l'éditeur unique : store, historique, inspecteur généré depuis les manifestes, modal de modules, aperçu, tiroir de modulation replié. Voir `docs/ETAPE-1.md`.
 - **Étape 1.5 terminée** ✅ — le store redevient l'unique propriétaire de l'état (plus aucune mutation directe du document depuis l'UI, un geste = une entrée d'historique), glisser-déposer de la pile en Pointer Events (souris/tactile/stylet) avec réordonnancement clavier, modal d'export statique, mouvement (apparition/disparition, impulsion du fil, ouverture des modals) en respectant `prefers-reduced-motion`. Voir `docs/ETAPE-1-5.md`.
-- **Étape 2 à venir** — le moteur : `packages/engine` en WebGL2 (ping-pong de framebuffers), et les trois premiers modules réellement branchés (`source.image`, `traitement.halftone`, `finition.grain`). Le store étant redevenu le point de passage unique, l'invalidation du rendu tient en une ligne : le document a changé → redessine.
+- **Étape 2, vague A terminée** ✅ — le moteur : `packages/engine` en WebGL2 (contrat shader, assembleur de programme, ping-pong de framebuffers, boucle paresseuse), les trois premiers modules réellement branchés (`source.image`, `traitement.halftone`, `finition.grain`), le canevas dans l'aperçu, et l'export image (`packages/export`) à pleine résolution du document. Le store étant redevenu le point de passage unique, l'invalidation du rendu tient en un seul `$effect`. Vague B à venir : `packages/palette`, Bayer, l'error diffusion en Worker, les finitions et réglages restants.
 - **Ce qui survit du design system déjà commencé :** les tokens, les polices et les composants de base (`SectionLabel`, `SliderRow`, `Select`, `Button`, `Panel`) sont **valides et conservés**. Seule la mise en page d'écran change.
 - **Ce qui est abandonné :** l'idée d'une page par outil — la page `/u-dither` n'a jamais été construite, et ne le sera pas ; le dossier `tools/` est supprimé.
 - `_legacy/u-dither-v1/` = **legacy, à ne jamais étendre**. Sert de **référence fonctionnelle uniquement** (algorithmes, palettes, presets, vocabulaire des paramètres).
@@ -153,3 +153,31 @@ U.LAB/
 **Aucun composant d'UI ne modifie le document directement : tout passe par une méthode du store.** Raison : c'est le seul point où le moteur pourra brancher l'invalidation du rendu (architecture §5). Décision négative associée : le `bind:` direct sur le document est interdit, même quand il marche.
 
 **Un geste utilisateur = une entrée d'historique.** Les valeurs par défaut arrivent à la création du module, pas par une série de `setParam` après coup.
+
+### Juillet 2026 — Étape 2 : premiers shaders, clés du halftone gelées avant terme
+
+**`traitement.halftone` perd `frequency`/`sharpness` au profit de `cellSize`/`roundness`.** C'était l'exemple canonique de l'architecture §4, jamais un vrai module ; la parité u.dither (`_legacy/u-dither-v1/web/src/core/halftoneParams.ts`) impose son propre vocabulaire, que les utilisateurs de u.dither connaissent déjà, et une taille de cellule en pixels est plus prévisible qu'une fréquence en lpi. Paramètres finaux : `cellSize`, `dotSize`, `minDot`, `shape` (`rond`/`carré`/`carré arrondi`), `roundness`, `jitter`, `stretch`, `angle`, `invert`. `gamma`, `contrast` et `colorMode` du legacy ne reviennent pas — pas assez sûrs de savoir les expliquer pour l'instant. `palette` arrive en vague B. **C'était la dernière fenêtre pour renommer une clé** : à partir de l'étape 3, des fichiers `.ulab` existent et les clés sont gelées.
+
+**Nouvel uniforme moteur `uMediaSize`, toujours présent.** Le cadrage « contain » de `source.image` a besoin de la résolution native du média face à `uResolution` ; le type de paramètre `file` n'est explicitement jamais transmis à un shader (architecture §3.1), donc un module ne peut pas se fournir cette information lui-même. C'est une capacité de moteur au sens de l'architecture §8 (« la capacité manque au moteur, elle remonte dans `packages/engine`, elle ne descend pas dans le module ») : `packages/engine/src/program.ts` l'ajoute au préambule toujours présent, `pipeline.ts` l'alimente avec les dimensions du bitmap résolu, `(0,0)` sentinelle quand aucun média n'est chargé.
+
+**Décision négative associée : pas de paramètre « netteté » séparé pour l'anticrénelage des bords.** Le lissage des bords de forme (halftone) et toute future forme à bord net utilisent `fwidth()` pour une largeur de smoothstep qui suit la résolution de rendu automatiquement, plutôt qu'un curseur à régler à la main — un réglage en moins, et pas de crénelage possible par mauvais réglage.
+
+### Juillet 2026 — Étape 2 : le canevas branché, et un piège Svelte 5 sur l'invalidation
+
+**`$effect(() => renderer.setProject(store.project))` ne suffit pas tel quel.** Constaté en direct (navigateur, curseur Halftone → Taille de cellule) : Svelte 5 ne traque que ce qu'un effet *lit* pendant son exécution. Lire seulement `store.project` (la référence de haut niveau) ne fait dépendre l'effet que d'un remplacement complet de l'objet — undo/redo, qui font `this.project = snapshot`. Toute mutation en place (`setParam`, `addModule`, `toggleModule`, `setBlend`, `setFormat`… donc pratiquement tous les gestes) passait sous le radar : le document changeait, le panneau reflétait le changement, le canevas restait figé. **Correction, toujours dans le même et seul effet :** lire aussi `store.project.updatedAt`, que `commit()` (`store.svelte.ts`) bumpe à chaque mutation sans exception — c'est déjà, de fait, le numéro de version du document. Un `void project.updatedAt;` suffit à faire dépendre ce point d'invalidation unique de tout geste, sans deuxième `$effect` ni parcours profond de l'arbre.
+
+**Décision négative associée :** pas de `JSON.stringify(store.project)` ni de parcours récursif générique pour forcer la profondeur de la lecture réactive — plus lourd, et strictement redondant avec un champ qui existe déjà pour cet usage.
+
+**`active` est un mot réservé en GLSL ES 3.00.** Le shader `traitement.halftone` déclarait `float active = …` — échec de compilation silencieux côté moteur (l'erreur est capturée dans `Renderer.error`, pas levée dans la console), canevas resté vide sans message. Renommé en `dotActive`. Ça a aussi révélé que `Renderer.state`/`.error` ne sont vérifiés qu'à la création dans `Editor.svelte` : une erreur survenant *après* (comme celle-ci, levée au premier vrai rendu) ne remonte pas encore à l'UI. Accepté tel quel pour cette étape — la vérification live (captures + requêtes GPU) est ce qui a permis de l'attraper à la place.
+
+**Mesures relevées (ETAPE-2.md §4, prompt 4), machine de développement :** zéro `requestAnimationFrame` actif sur 5 s avec le document au repos (avec et sans média chargé) — vérifié en enveloppant `requestAnimationFrame` avant le chargement de la page. Passe `traitement.halftone` à 1024×1024 : ~0,34 ms médian (mesuré via `EXT_disjoint_timer_query_webgl2`, GPU réel — un simple `performance.now()` autour de `drawArrays` ne mesure que la mise en file, quasi nulle, le travail GPU étant asynchrone). Les trois passes de la pile par défaut (image + halftone + grain) tiennent ensemble largement sous 1,5 ms : très loin du budget 60 fps.
+
+### Juillet 2026 — Étape 2, fin de vague A
+
+**Contrat shader : un module fournit `vec4 ulab_main(vec4 src, vec2 uv)` et RIEN d'autre.** Le moteur assemble le programme, déclare les uniformes depuis le manifeste et applique le blend. Décision négative associée : un module n'écrit jamais son propre `void main()`, même quand ce serait plus court.
+
+**L'ordre des options d'un paramètre `enum` est un contrat public au même titre que la clé** : on complète par la fin, jamais par le milieu.
+
+**Espace colorimétrique sRGB 8 bits de bout en bout, sans gestion de couleur.** À réévaluer le jour où on fait du bloom crédible.
+
+**Halftone : `frequency`/`sharpness` remplacés par `cellSize`/`roundness` avant tout gel des clés** (parité u.dither).

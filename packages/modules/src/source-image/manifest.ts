@@ -1,4 +1,5 @@
 import type { ModuleDef } from '../types.ts';
+import fragment from './shader.glsl?raw';
 
 export const manifest: ModuleDef = {
 	type: 'source.image',
@@ -9,5 +10,5 @@ export const manifest: ModuleDef = {
 	params: [
 		{ key: 'file', label: 'Fichier', type: 'file', default: null },
 	],
-	render: { kind: 'shader', fragment: '// TODO(Étape 2)' },
+	render: { kind: 'shader', fragment },
 };

@@ -1,11 +1,15 @@
 <script lang="ts">
   interface Props {
     label: string;
-    value: string | null;
+    /** Nom du média actuellement référencé, déjà résolu par l'appelant — FileDrop ne lit jamais le document. */
+    mediaName?: string | null;
+    /** Message de refus (fichier non-image, trop lourd…), décidé par l'appelant. */
+    error?: string | null;
     disabled?: boolean;
+    onFile?: (file: File) => void;
   }
 
-  let { label, value = $bindable(), disabled = false }: Props = $props();
+  let { label, mediaName = null, error = null, disabled = false, onFile }: Props = $props();
 
   let dragOver = $state(false);
 
@@ -23,12 +27,14 @@
     dragOver = false;
     if (disabled) return;
     const file = event.dataTransfer?.files?.[0];
-    if (file) value = file.name;
+    if (file) onFile?.(file);
   }
 
   function handleChange(event: Event) {
-    const file = (event.currentTarget as HTMLInputElement).files?.[0];
-    if (file) value = file.name;
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    if (file) onFile?.(file);
+    input.value = ''; // permet de re-choisir le même fichier après un refus
   }
 </script>
 
@@ -38,6 +44,7 @@
     class="file-drop__zone"
     class:file-drop__zone--over={dragOver}
     class:file-drop__zone--disabled={disabled}
+    class:file-drop__zone--error={Boolean(error)}
     ondragover={handleDragOver}
     ondragleave={handleDragLeave}
     ondrop={handleDrop}
@@ -45,18 +52,22 @@
     <input
       class="file-drop__input"
       type="file"
+      accept="image/*"
       aria-label={label}
       {disabled}
       onchange={handleChange}
     />
     <span class="file-drop__text">
-      {#if value}
-        {value}
+      {#if mediaName}
+        {mediaName}
       {:else}
         Glisser un fichier ici
       {/if}
     </span>
   </label>
+  {#if error}
+    <span class="file-drop__error" role="alert">{error}</span>
+  {/if}
 </div>
 
 <style>
@@ -101,6 +112,10 @@
     border-color: var(--accent);
   }
 
+  .file-drop__zone--error {
+    border-color: var(--danger);
+  }
+
   .file-drop__zone--disabled {
     cursor: not-allowed;
     opacity: 0.5;
@@ -128,5 +143,11 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     pointer-events: none;
+  }
+
+  .file-drop__error {
+    font-family: var(--font-sans);
+    font-size: var(--t-sm);
+    color: var(--danger);
   }
 </style>

@@ -13,9 +13,20 @@
     param: ParamDef;
     value: ParamValue;
     disabled?: boolean;
+    /** Paramètre 'file' uniquement — transmis tel quel, résolu par l'appelant. */
+    mediaName?: string | null;
+    fileError?: string | null;
+    onFile?: (file: File) => void;
   }
 
-  let { param, value = $bindable(), disabled = false }: Props = $props();
+  let {
+    param,
+    value = $bindable(),
+    disabled = false,
+    mediaName = null,
+    fileError = null,
+    onFile,
+  }: Props = $props();
 
   function setValue(next: ParamValue) {
     value = next;
@@ -37,10 +48,6 @@
     return typeof value === 'object' && value !== null && !Array.isArray(value)
       ? value
       : fallback;
-  }
-
-  function asFile(fallback: string | null): string | null {
-    return typeof value === 'string' || value === null ? value : fallback;
   }
 </script>
 
@@ -70,5 +77,5 @@
 {:else if param.type === 'text'}
   <TextArea label={param.label} bind:value={() => asString(param.default), setValue} {disabled} />
 {:else if param.type === 'file'}
-  <FileDrop label={param.label} bind:value={() => asFile(param.default), setValue} {disabled} />
+  <FileDrop label={param.label} {mediaName} error={fileError} {disabled} {onFile} />
 {/if}

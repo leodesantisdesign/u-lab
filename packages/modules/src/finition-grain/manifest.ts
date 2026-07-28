@@ -1,4 +1,5 @@
 import type { ModuleDef } from '../types.ts';
+import fragment from './shader.glsl?raw';
 
 // Plage reprise de _legacy/u-dither-v1/web/src/core/fxParams.ts
 // (EFFECT_META.grain : 0-100). Le défaut utilise defaultAmount (16), pas le
@@ -22,5 +23,5 @@ export const manifest: ModuleDef = {
 			unit: '%',
 		},
 	],
-	render: { kind: 'shader', fragment: '// TODO(Étape 2)' },
+	render: { kind: 'shader', fragment },
 };

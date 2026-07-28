@@ -14,6 +14,8 @@
   "dependencies": {
     "@astrojs/svelte": "^9.0.1",
     "@ulab/core": "workspace:*",
+    "@ulab/engine": "workspace:*",
+    "@ulab/export": "workspace:*",
     "@ulab/modules": "workspace:*",
     "@ulab/ui": "workspace:*",
     "astro": "^7.1.3",
