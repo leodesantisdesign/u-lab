@@ -1,0 +1,21 @@
+{
+  "name": "@ulab/engine",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@ulab/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "@ulab/modules": "workspace:*",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.10"
+  }
+}

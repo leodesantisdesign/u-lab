@@ -1,7 +1,11 @@
 <script lang="ts">
   import { tick } from 'svelte';
-  import { DocumentStore, createProject } from '@ulab/core';
+  import { DocumentStore, MediaStore, createProject } from '@ulab/core';
   import type { ModuleInstance, Project } from '@ulab/core';
+  import { createRenderer } from '@ulab/engine';
+  import type { Renderer } from '@ulab/engine';
+  import { exportFilename, exportImage, imageExtension } from '@ulab/export';
+  import type { ImageFormat } from '@ulab/export';
   import { byType } from '@ulab/modules';
   import type { ModuleCategory } from '@ulab/modules';
   import StackItem from '@ulab/ui/components/StackItem.svelte';
@@ -25,17 +29,23 @@
 
   const QUALITY_FPS: Record<string, number> = { Basse: 15, Moyenne: 30, Haute: 60 };
 
-  function instanceWithDefaults(type: string): ModuleInstance {
+  const MAX_MEDIA_BYTES = 40 * 1024 * 1024;
+
+  function buildDefaults(type: string): Record<string, ModuleInstance['params'][string]> {
     const def = byType(type);
-    const params: ModuleInstance['params'] = {};
+    const params: Record<string, ModuleInstance['params'][string]> = {};
     for (const param of def?.params ?? []) {
       params[param.key] = param.default;
     }
+    return params;
+  }
+
+  function instanceWithDefaults(type: string): ModuleInstance {
     return {
       id: crypto.randomUUID(),
       type,
       enabled: true,
-      params,
+      params: buildDefaults(type),
       blend: { mode: 'normal', opacity: 1 },
     };
   }
@@ -47,6 +57,7 @@
   }
 
   const store = new DocumentStore(buildDefaultProject());
+  const mediaStore = new MediaStore();
 
   // Signal « quelque chose vient d'être branché » (design system §5) : le
   // SEUL retour sur un changement de composition de la pile — ajout,
@@ -71,15 +82,6 @@
     }
   });
 
-  function buildDefaults(type: string): Record<string, ModuleInstance['params'][string]> {
-    const def = byType(type);
-    const params: Record<string, ModuleInstance['params'][string]> = {};
-    for (const param of def?.params ?? []) {
-      params[param.key] = param.default;
-    }
-    return params;
-  }
-
   function addModuleWithDefaults(type: string, atIndex?: number): void {
     store.addModule(type, buildDefaults(type), atIndex);
   }
@@ -88,6 +90,36 @@
     const instance = store.selectedModule;
     if (!instance) return;
     store.resetParams(instance.id, buildDefaults(instance.type));
+  }
+
+  let fileError: string | null = $state(null);
+
+  // MediaStore.add décode (async) avant que le document ne bouge. `instance`
+  // est capturé avant l'attente : si la sélection change pendant le décodage,
+  // le média rejoint quand même le bon module, jamais celui affiché ensuite.
+  async function handleFileParam(key: string, file: File): Promise<void> {
+    const instance = store.selectedModule;
+    if (!instance) return;
+    fileError = null;
+
+    if (!file.type.startsWith('image/')) {
+      fileError = "Ce fichier n'est pas une image.";
+      return;
+    }
+    if (file.size > MAX_MEDIA_BYTES) {
+      fileError = 'Fichier trop lourd (40 Mo maximum).';
+      return;
+    }
+
+    try {
+      const ref = await mediaStore.add(file);
+      // Même groupKey que setParam(`${moduleId}.${key}`, voir store.svelte.ts) :
+      // les deux commits fusionnent en une seule entrée d'historique.
+      store.addMedia(ref, `${instance.id}.${key}`);
+      store.setParam(instance.id, key, ref.id);
+    } catch {
+      fileError = 'Impossible de lire ce fichier.';
+    }
   }
 
   // Réordonnancement de la pile : Pointer Events (souris, tactile, stylet en un
@@ -232,8 +264,76 @@
   }
 
   let quality: 'Basse' | 'Moyenne' | 'Haute' = $state('Moyenne');
-  let ratio = $state('1:1');
   let showBefore = $state(false);
+
+  let canvasEl: HTMLCanvasElement | undefined = $state();
+  let renderer: Renderer | null = null;
+  let rendererError: string | null = $state(null);
+
+  function qualityMaxSide(q: 'Basse' | 'Moyenne' | 'Haute'): number {
+    if (q === 'Basse') return 512;
+    if (q === 'Moyenne') return 1024;
+    // Haute : taille CSS affichée × devicePixelRatio (ETAPE-2.md §3.6).
+    // L'engine plafonne lui-même ce chiffre à project.format, pas besoin de
+    // le refaire ici.
+    const rect = canvasEl?.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    return (rect ? Math.max(rect.width, rect.height) : 1024) * dpr;
+  }
+
+  function handleQualityChange(next: string) {
+    quality = next as typeof quality;
+    renderer?.setQuality(qualityMaxSide(quality));
+  }
+
+  // Création du moteur : dépend du canevas, donc dans un $effect (le ref
+  // n'existe qu'après le montage). Le nettoyage retourné dispose le moteur
+  // aussi bien au démontage réel qu'à un rechargement à chaud en dev — Vite
+  // détruit puis recrée l'instance du composant dans les deux cas, ce qui
+  // rejoue ce même effet et son nettoyage.
+  $effect(() => {
+    if (!canvasEl) return;
+
+    const instance = createRenderer(canvasEl, {
+      resolveModule: byType,
+      resolveMedia: (id) => mediaStore.get(id)?.bitmap,
+    });
+
+    rendererError =
+      instance.state === 'error' ? (instance.error?.message ?? 'WebGL2 indisponible.') : null;
+
+    instance.setQuality(qualityMaxSide(quality));
+    instance.start();
+    renderer = instance;
+
+    return () => {
+      instance.dispose();
+      if (renderer === instance) renderer = null;
+    };
+  });
+
+  // Invalidation en un point (ETAPE-2.md §3.6) : c'est la SEULE écoute qui
+  // pousse le document vers le moteur. « Avant / après » n'ajoute pas une
+  // deuxième écoute — c'est la même, elle choisit juste quelle pile envoyer.
+  //
+  // Piège vérifié en direct : Svelte 5 ne traque que ce qu'un effet LIT
+  // pendant son exécution. Lire seulement `store.project` (la référence de
+  // haut niveau) ne réagit qu'à un remplacement complet de l'objet —
+  // undo/redo, qui font `this.project = snapshot`. Une mutation en place
+  // (setParam, addModule, toggleModule, setBlend, setFormat…, donc
+  // pratiquement tous les gestes) passait sous le radar : curseur Halftone
+  // → Taille de cellule bougé, canevas inchangé. `commit()` (store.svelte.ts)
+  // bumpe `project.updatedAt` à chaque mutation, sans exception — c'est déjà
+  // le numéro de version du document. Le lire ici suffit à faire dépendre CE
+  // seul effet de tout geste, sans deuxième écoute ni parcours profond.
+  $effect(() => {
+    if (!renderer) return;
+    const project = store.project;
+    void project.updatedAt;
+    renderer.setProject(
+      showBefore ? { ...project, stack: project.stack.slice(0, 1) } : project,
+    );
+  });
 
   type ToolsModalState =
     | { mode: 'add' }
@@ -277,7 +377,6 @@
   );
 
   function handleRatioChange(next: string) {
-    ratio = next;
     const size = RATIOS[next];
     if (size) {
       store.setFormat({ ratio: next, width: size.width, height: size.height });
@@ -288,16 +387,46 @@
     store.selectedModule ? (byType(store.selectedModule.type) ?? null) : null,
   );
   const sourceDef = $derived(store.source ? (byType(store.source.type) ?? null) : null);
-  const previewSize = $derived(RATIOS[ratio] ?? RATIOS['1:1']);
 
-  // L'onglet Vidéo de l'export dépend de la catégorie et du type de la
-  // SOURCE (stack[0]), pas d'un module quelconque de la pile.
-  const ANIMATED_SOURCE_TYPES = ['source.video', 'source.webcam'];
-  const animatedSource = $derived(
-    sourceDef?.category === 'source' && ANIMATED_SOURCE_TYPES.includes(sourceDef.type),
-  );
+  const selectedMediaName = $derived.by(() => {
+    const instance = store.selectedModule;
+    const fileParam = selectedDef?.params.find((param) => param.type === 'file');
+    if (!instance || !fileParam) return null;
+    const mediaId = instance.params[fileParam.key];
+    if (typeof mediaId !== 'string') return null;
+    return store.project.media.find((media) => media.id === mediaId)?.name ?? null;
+  });
 
   let showExportModal = $state(false);
+
+  function downloadBlob(blob: Blob, filename: string): void {
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.click();
+    // Révoqué après coup, pas immédiatement : certains navigateurs n'ont pas
+    // encore lancé le téléchargement au retour synchrone de click().
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  // Export image : toujours à la taille du document (project.format), jamais
+  // celle de l'aperçu — le moteur rend hors écran, sur un canevas dédié
+  // (@ulab/export), indépendamment du réglage de qualité d'aperçu.
+  async function handleExportImage({
+    format,
+  }: {
+    format: ImageFormat;
+  }): Promise<{ width: number; height: number; bytes: number }> {
+    const { width, height } = store.project.format;
+    const blob = await exportImage(
+      store.project,
+      { resolveModule: byType, resolveMedia: (id) => mediaStore.get(id)?.bitmap },
+      { width, height, format },
+    );
+    downloadBlob(blob, exportFilename(store.project.name, imageExtension(format)));
+    return { width, height, bytes: blob.size };
+  }
 
   const modulationTargetOptions = $derived(
     store.project.stack.flatMap((instance) => {
@@ -337,7 +466,7 @@
         <Select
           label="Qualité d'aperçu"
           options={Object.keys(QUALITY_FPS).map((key) => ({ label: key, value: key }))}
-          bind:value={() => quality, (v) => (quality = v as typeof quality)}
+          bind:value={() => quality, handleQualityChange}
         />
         <span class="editor__fps">{QUALITY_FPS[quality]} i/s</span>
       </div>
@@ -354,6 +483,8 @@
         def={selectedDef}
         instance={store.selectedModule}
         icon={moduleIcon}
+        mediaName={selectedMediaName}
+        fileError={fileError}
         onClose={() => (store.selectedModuleId = null)}
         onReset={handleReset}
         onParamChange={(key, value) => {
@@ -364,6 +495,7 @@
           const instance = store.selectedModule;
           if (instance) store.setBlend(instance.id, blend);
         }}
+        onFileParam={handleFileParam}
       />
     </div>
 
@@ -404,26 +536,39 @@
       </div>
 
       <div class="editor__preview-area">
-        <div class="editor__preview-wrap" style:aspect-ratio={ratio.replace(':', ' / ')}>
+        <div
+          class="editor__preview-wrap"
+          style:aspect-ratio={store.project.format.ratio.replace(':', ' / ')}
+        >
           <PreviewFrame
-            ratio={ratio}
-            width={previewSize.width}
-            height={previewSize.height}
+            ratio={store.project.format.ratio}
+            width={store.project.format.width}
+            height={store.project.format.height}
             label="Pile : {sourceDef?.name ?? '—'}"
             pulseToken={pulseToken}
           >
             {#snippet children()}
-              <img class="editor__preview-image" src="/placeholder.svg" alt="" />
+              <canvas bind:this={canvasEl}></canvas>
+              {#if rendererError}
+                <div class="editor__preview-error" role="alert">
+                  <p class="editor__preview-error-title">Aperçu WebGL indisponible</p>
+                  <p class="editor__preview-error-detail">{rendererError}</p>
+                </div>
+              {/if}
             {/snippet}
             {#snippet ratioControl()}
               <Select
                 label="Ratio"
                 options={Object.keys(RATIOS).map((key) => ({ label: key, value: key }))}
-                bind:value={() => ratio, handleRatioChange}
+                bind:value={() => store.project.format.ratio, handleRatioChange}
               />
             {/snippet}
           </PreviewFrame>
         </div>
+
+        <p class="editor__media-notice">
+          Les médias ne sont pas encore enregistrés : recharger la page les perd.
+        </p>
 
         <div class="editor__preview-controls">
           <Button variant="secondary" onclick={() => (showBefore = !showBefore)}>
@@ -468,8 +613,8 @@
     format={store.project.format}
     duration={store.project.duration}
     fps={store.project.fps}
-    animatedSource={animatedSource}
     onClose={() => (showExportModal = false)}
+    onExport={handleExportImage}
   />
 {/if}
 
@@ -649,10 +794,41 @@
     width: min(70vw, 640px);
   }
 
-  .editor__preview-image {
-    max-width: 100%;
-    max-height: 100%;
-    image-rendering: pixelated;
+  .editor__preview-error {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-8);
+    padding: var(--space-16);
+    text-align: center;
+    background: var(--bg-1);
+  }
+
+  .editor__preview-error-title {
+    margin: 0;
+    font-family: var(--font-sans);
+    font-size: var(--t-base);
+    font-weight: 500;
+    color: var(--ink);
+  }
+
+  .editor__preview-error-detail {
+    margin: 0;
+    max-width: 40ch;
+    font-family: var(--font-mono);
+    font-size: var(--t-sm);
+    color: var(--ink-muted);
+  }
+
+  .editor__media-notice {
+    margin: 0;
+    font-family: var(--font-sans);
+    font-size: var(--t-sm);
+    color: var(--ink-faint);
+    text-align: center;
   }
 
   .editor__preview-controls {

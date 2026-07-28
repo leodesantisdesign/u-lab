@@ -23,13 +23,28 @@
     def: ModuleDef | null;
     instance: ModuleInstance | null;
     icon?: Snippet;
+    /** Nom du média du paramètre 'file' courant, déjà résolu — l'inspecteur ne lit pas project.media. */
+    mediaName?: string | null;
+    fileError?: string | null;
     onClose?: () => void;
     onReset?: () => void;
     onParamChange?: (key: string, value: ParamValue) => void;
     onBlendChange?: (blend: { mode: BlendMode; opacity: number }) => void;
+    onFileParam?: (key: string, file: File) => void;
   }
 
-  let { def, instance, icon, onClose, onReset, onParamChange, onBlendChange }: Props = $props();
+  let {
+    def,
+    instance,
+    icon,
+    mediaName = null,
+    fileError = null,
+    onClose,
+    onReset,
+    onParamChange,
+    onBlendChange,
+    onFileParam,
+  }: Props = $props();
 
   let activeTab: Tab = $state('commandes');
   let offset = $state({ x: 0, y: 0 });
@@ -125,6 +140,9 @@
             <ParamRow
               {param}
               bind:value={() => instance.params[param.key], (v) => onParamChange?.(param.key, v)}
+              mediaName={param.type === 'file' ? mediaName : null}
+              fileError={param.type === 'file' ? fileError : null}
+              onFile={(file) => onFileParam?.(param.key, file)}
             />
           {/each}
         {/if}

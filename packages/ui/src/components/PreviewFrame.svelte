@@ -113,6 +113,17 @@
     image-rendering: pixelated;
   }
 
+  /* Le canevas du moteur arrive en enfant (snippet children), donc hors de
+     la portée de style de ce composant : :global est nécessaire pour
+     l'atteindre. Il remplit .preview-frame__content sans en déformer le
+     contenu — object-fit: contain, jamais cover ni fill. */
+  .preview-frame__content :global(canvas) {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    image-rendering: pixelated;
+  }
+
   .preview-frame__pulse {
     position: absolute;
     inset: -1px;

@@ -3,15 +3,23 @@
   import Select from './Select.svelte';
   import Button from './Button.svelte';
 
+  type ImageFormat = 'png' | 'jpeg' | 'webp';
+
+  interface ExportResult {
+    width: number;
+    height: number;
+    bytes: number;
+  }
+
   interface Props {
     format: { ratio: string; width: number; height: number };
     duration: number;
     fps: number;
-    animatedSource: boolean;
     onClose: () => void;
+    onExport: (options: { format: ImageFormat }) => Promise<ExportResult>;
   }
 
-  let { format, duration, fps, animatedSource, onClose }: Props = $props();
+  let { format, duration, fps, onClose, onExport }: Props = $props();
 
   type Tab = 'image' | 'video';
 
@@ -50,7 +58,7 @@
 
   let activeTab: Tab = $state('image');
   let qualityValue = $state('haute');
-  let imageFormat = $state('png');
+  let imageFormat: ImageFormat = $state('png');
   let videoFormat = $state('h264');
   let bitrateMbps = $state(DEFAULT_BITRATE_MBPS.haute);
   let exportFps = $state(fps);
@@ -59,14 +67,25 @@
   let modalEl: HTMLDivElement | undefined = $state();
   let firstTabEl: HTMLButtonElement | undefined = $state();
 
+  // L'export vidéo n'existe pas avant l'étape 4 — l'onglet reste désactivé
+  // quelle que soit la source, pas seulement pour les sources animées.
   function selectTab(tab: Tab) {
-    if (tab === 'video' && !animatedSource) return;
+    if (tab === 'video') return;
     activeTab = tab;
   }
 
-  // Le palier de qualité fixe le grand côté en pixels ; l'autre côté suit le
-  // ratio du document et est arrondi au pair (contrainte codecs vidéo).
+  function handleImageFormatChange(next: string) {
+    imageFormat = next as ImageFormat;
+    lastResult = null; // le dernier résultat mesuré ne correspond plus au réglage courant
+  }
+
+  // Image : toujours la taille du document, jamais un palier de qualité —
+  // « jamais en agrandissant l'aperçu » (ETAPE-2.md §3.6). Le palier de
+  // qualité ne s'applique qu'à la vidéo, où un choix de résolution a un sens.
+  // Vidéo : le palier fixe le grand côté en pixels, l'autre côté suit le
+  // ratio du document, arrondi au pair (contrainte codecs).
   const outputSize = $derived.by(() => {
+    if (activeTab === 'image') return { width: format.width, height: format.height };
     const longEdge = QUALITIES.find((q) => q.value === qualityValue)?.longEdge ?? format.width;
     const aspect = format.width / format.height;
     if (aspect >= 1) {
@@ -91,15 +110,48 @@
       : ((bitrateMbps * 1_000_000) / 8) * Math.max(exportDuration, 0),
   );
 
-  function formatSize(bytes: number): string {
+  // Le « ~ » est le marqueur d'estimation : il disparaît devant un poids
+  // mesuré sur le blob réel — sinon la ligne reste honnête en apparence
+  // seulement, ce qu'on essaie justement d'éviter ici.
+  function formatSize(bytes: number, exact = false): string {
     const mo = bytes / 1_000_000;
     if (mo < 0.1) return '< 0,1 Mo';
-    return `~${mo.toLocaleString('fr-FR', { maximumFractionDigits: 1 })} Mo`;
+    const value = mo.toLocaleString('fr-FR', { maximumFractionDigits: 1 });
+    return exact ? `${value} Mo` : `~${value} Mo`;
   }
 
-  const infoLine = $derived(
-    `Résolution ${outputSize.width} × ${outputSize.height} · ${formatSize(estimatedBytes)} · ${activeFormatLabel}`,
+  let exportBusy = $state(false);
+  let exportError: string | null = $state(null);
+  let lastResult: ExportResult | null = $state(null);
+
+  // Tant qu'aucun export n'a eu lieu (ou que les réglages ont changé depuis),
+  // la ligne reste une estimation. Une fois le blob réel obtenu, elle
+  // affiche ses vraies dimensions et son vrai poids — plus une estimation.
+  const showsRealResult = $derived(
+    activeTab === 'image' &&
+      lastResult !== null &&
+      lastResult.width === outputSize.width &&
+      lastResult.height === outputSize.height,
   );
+
+  const infoLine = $derived(
+    showsRealResult && lastResult
+      ? `Résolution ${lastResult.width} × ${lastResult.height} · ${formatSize(lastResult.bytes, true)} · ${activeFormatLabel}`
+      : `Résolution ${outputSize.width} × ${outputSize.height} · ${formatSize(estimatedBytes)} · ${activeFormatLabel}`,
+  );
+
+  async function handleDownload() {
+    if (activeTab !== 'image' || exportBusy) return;
+    exportBusy = true;
+    exportError = null;
+    try {
+      lastResult = await onExport({ format: imageFormat });
+    } catch (err) {
+      exportError = err instanceof Error ? err.message : "Échec de l'export.";
+    } finally {
+      exportBusy = false;
+    }
+  }
 
   function handleKeydown(event: KeyboardEvent) {
     if (event.key === 'Escape') {
@@ -159,8 +211,8 @@
         class:export-modal__tab--active={activeTab === 'video'}
         role="tab"
         aria-selected={activeTab === 'video'}
-        disabled={!animatedSource}
-        title={animatedSource ? undefined : 'Disponible pour une source vidéo ou webcam'}
+        disabled
+        title="disponible à l'étape 4"
         onclick={() => selectTab('video')}
       >
         Vidéo
@@ -168,20 +220,26 @@
     </div>
 
     <div class="export-modal__body">
-      <div class="export-modal__field">
-        <span class="export-modal__field-label">Qualité</span>
-        <Select
-          label="Qualité"
-          options={QUALITIES.map((q) => ({ label: q.label, value: q.value }))}
-          bind:value={qualityValue}
-        />
-      </div>
+      {#if activeTab === 'video'}
+        <div class="export-modal__field">
+          <span class="export-modal__field-label">Qualité</span>
+          <Select
+            label="Qualité"
+            options={QUALITIES.map((q) => ({ label: q.label, value: q.value }))}
+            bind:value={qualityValue}
+          />
+        </div>
+      {/if}
 
       <div class="export-modal__row">
         <div class="export-modal__field">
           <span class="export-modal__field-label">Format</span>
           {#if activeTab === 'image'}
-            <Select label="Format" options={IMAGE_FORMATS} bind:value={imageFormat} />
+            <Select
+              label="Format"
+              options={IMAGE_FORMATS}
+              bind:value={() => imageFormat, handleImageFormatChange}
+            />
           {:else}
             <Select label="Format" options={VIDEO_FORMATS} bind:value={videoFormat} />
           {/if}
@@ -234,10 +292,24 @@
       </div>
 
       <p class="export-modal__info">{infoLine}</p>
+      {#if exportError}
+        <p class="export-modal__error" role="alert">{exportError}</p>
+      {/if}
     </div>
 
     <footer class="export-modal__footer">
-      <Button variant="primary" disabled title="disponible à l'étape 2">Télécharger</Button>
+      {#if activeTab === 'image'}
+        <Button
+          variant="primary"
+          disabled={exportBusy}
+          aria-busy={exportBusy}
+          onclick={handleDownload}
+        >
+          {exportBusy ? 'Export en cours…' : 'Télécharger'}
+        </Button>
+      {:else}
+        <Button variant="primary" disabled title="disponible à l'étape 4">Télécharger</Button>
+      {/if}
     </footer>
   </div>
 </div>
@@ -433,6 +505,13 @@
     margin: 0;
     padding-top: var(--space-4);
     border-top: 1px solid var(--line);
+  }
+
+  .export-modal__error {
+    font-family: var(--font-sans);
+    font-size: var(--t-sm);
+    color: var(--danger);
+    margin: 0;
   }
 
   .export-modal__footer {

@@ -1,5 +1,5 @@
 import { History } from './history.ts';
-import type { BlendMode, ModSource, Modulation, ModuleInstance, ParamValue, Project } from './types.ts';
+import type { BlendMode, MediaRef, ModSource, Modulation, ModuleInstance, ParamValue, Project } from './types.ts';
 
 export function createProject(name = 'Sans titre'): Project {
 	const now = Date.now();
@@ -114,6 +114,25 @@ export class DocumentStore {
 
 	setFormat(format: { ratio: string; width: number; height: number }): void {
 		this.project.format = { ...format };
+		this.commit();
+	}
+
+	/**
+	 * `groupKey` permet à l'appelant de fusionner ce commit avec le
+	 * `setParam` qui l'accompagne typiquement (poser un `MediaRef` puis le
+	 * référencer dans un paramètre 'file') : un seul geste utilisateur, une
+	 * seule entrée d'historique — même mécanisme que `setBlend` ou
+	 * `setModulationSensitivity`.
+	 */
+	addMedia(ref: MediaRef, groupKey?: string): void {
+		this.project.media.push(ref);
+		this.commit(groupKey);
+	}
+
+	removeMedia(id: string): void {
+		const index = this.project.media.findIndex((m) => m.id === id);
+		if (index === -1) return;
+		this.project.media.splice(index, 1);
 		this.commit();
 	}
 
