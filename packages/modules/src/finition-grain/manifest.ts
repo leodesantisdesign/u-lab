@@ -1,5 +1,6 @@
 import type { ModuleDef } from '../types.ts';
 import fragment from './shader.glsl?raw';
+import thumbnail from './thumbnail.webp?url';
 
 // Plage reprise de _legacy/u-dither-v1/web/src/core/fxParams.ts
 // (EFFECT_META.grain : 0-100). Le défaut utilise defaultAmount (16), pas le
@@ -10,7 +11,7 @@ export const manifest: ModuleDef = {
 	category: 'finition',
 	name: 'Grain',
 	summary: 'Grain de pellicule monochrome, superposé sans transformer le reste.',
-	thumbnail: './thumbnail.webp',
+	thumbnail,
 	params: [
 		{
 			key: 'amount',

@@ -10,7 +10,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@ulab/core": "workspace:*"
+    "@ulab/core": "workspace:*",
+    "@ulab/palette": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",

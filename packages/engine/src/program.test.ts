@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import type { ModuleDef } from '@ulab/modules';
 import { assembleProgram, BLEND_MODES, blendModeIndex } from './program.ts';
+import type { ShaderModuleDef } from './program.ts';
 
 // Manifeste de test — un `traitement`, donc il subit le blend. Le corps
 // `ulab_main` est un stand-in : ce test vérifie l'assemblage, pas le rendu.
-const TRAITEMENT_DEF: ModuleDef = {
+const TRAITEMENT_DEF: ShaderModuleDef = {
 	type: 'traitement.halftone',
 	category: 'traitement',
 	name: 'Halftone',
@@ -18,11 +18,12 @@ const TRAITEMENT_DEF: ModuleDef = {
 		{ key: 'center', label: 'Centre', type: 'point', default: { x: 0.5, y: 0.5 } },
 		{ key: 'label', label: 'Étiquette', type: 'text', default: '' },
 		{ key: 'file', label: 'Fichier', type: 'file', default: null },
+		{ key: 'palette', label: 'Palette', type: 'palette', default: 'aucune' },
 	],
 	render: { kind: 'shader', fragment: 'vec4 ulab_main(vec4 src, vec2 uv) {\n  return src;\n}' },
 };
 
-const SOURCE_DEF: ModuleDef = {
+const SOURCE_DEF: ShaderModuleDef = {
 	type: 'source.image',
 	category: 'source',
 	name: 'Image',
@@ -46,6 +47,7 @@ describe('assembleProgram', () => {
 		expect(fragment).toContain('uniform sampler2D uSource;');
 		expect(fragment).toContain('uniform vec2 uResolution;');
 		expect(fragment).toContain('uniform vec2 uTexel;');
+		expect(fragment).toContain('uniform float uScale;');
 		expect(fragment).toContain('uniform float uTime;');
 		expect(fragment).toContain('uniform int uFrame;');
 		expect(fragment).toContain('uniform float uSeed;');
@@ -63,6 +65,21 @@ describe('assembleProgram', () => {
 		expect(fragment).toContain('uniform vec2 u_center;');
 		expect(fragment).not.toContain('u_label');
 		expect(fragment).not.toContain('u_file');
+	});
+
+	it("génère un tableau et un compte pour un paramètre 'palette'", () => {
+		const { fragment } = assembleProgram(TRAITEMENT_DEF);
+		expect(fragment).toContain('uniform vec3 u_palette[16];');
+		expect(fragment).toContain('uniform int u_palette_count;');
+	});
+
+	it("inclut ulab_palette_nearest pour tout module, source ou non — utilitaire commun au préambule", () => {
+		for (const def of [TRAITEMENT_DEF, SOURCE_DEF]) {
+			const { fragment } = assembleProgram(def);
+			expect(fragment).toContain(
+				'vec3 ulab_palette_nearest(vec3 c, vec3 pal[16], int count)',
+			);
+		}
 	});
 
 	it('inclut ulab_blend et les uniformes de fusion pour un module non-source', () => {

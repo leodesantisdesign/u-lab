@@ -1,13 +1,18 @@
 import type { ModuleDef } from '../types.ts';
+import fragment from './shader.glsl?raw';
+import thumbnail from './thumbnail.webp?url';
 
-// Plage et défaut repris de _legacy/u-dither-v1/web/src/core/fxParams.ts
-// (EFFECT_META.posterize : min 0, max 16, défaut 6).
+// Plage reprise de _legacy/u-dither-v1/web/src/core/fxParams.ts
+// (EFFECT_META.posterize : défaut 6), bornée à 2 min (ETAPE-2.md, prompt 10)
+// plutôt que 0 — en dessous de 2 niveaux il n'y a plus d'image.
+// Pas de palette (ETAPE-2.md §2) : c'est le témoin du catalogue, il montre
+// ce que le tramage évite plutôt que de faire le travail des trois autres.
 export const manifest: ModuleDef = {
 	type: 'traitement.posterisation',
 	category: 'traitement',
 	name: 'Postérisation',
-	summary: "Réduit le nombre de niveaux de ton, par bandes plutôt qu'en dégradé continu.",
-	thumbnail: './thumbnail.webp',
+	summary: 'Réduction du nombre de tons, sans tramage. Ce sont les bandes que les autres évitent.',
+	thumbnail,
 	params: [
 		{
 			key: 'levels',
@@ -19,5 +24,5 @@ export const manifest: ModuleDef = {
 			default: 6,
 		},
 	],
-	render: { kind: 'shader', fragment: '// TODO(Étape 2)' },
+	render: { kind: 'shader', fragment },
 };

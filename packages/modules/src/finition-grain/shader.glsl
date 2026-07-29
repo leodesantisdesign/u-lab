@@ -15,7 +15,12 @@ vec4 ulab_main(vec4 src, vec2 uv) {
     return src;
   }
 
-  float n = grain_hash(gl_FragCoord.xy, uSeed) - 0.5; // bruit -0.5..0.5
+  // Le grain de pellicule doit faire un pixel du DOCUMENT, pas un pixel du
+  // rendu courant (ETAPE-2.md §3.7) : sans ça, il paraît plus gros en
+  // qualité Basse qu'à l'export. gl_FragCoord ramené à l'échelle document
+  // via uScale avant le hash.
+  vec2 grainCoord = floor(gl_FragCoord.xy / max(uScale, 1e-4));
+  float n = grain_hash(grainCoord, uSeed) - 0.5; // bruit -0.5..0.5
   vec3 grained = clamp(src.rgb + n * amount, 0.0, 1.0);
   return vec4(grained, src.a);
 }

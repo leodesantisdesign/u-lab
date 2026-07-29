@@ -1,11 +1,13 @@
 import type { ModuleDef } from '../types.ts';
+import fragment from './shader.glsl?raw';
+import thumbnail from './thumbnail.webp?url';
 
 export const manifest: ModuleDef = {
 	type: 'traitement.pixelisation',
 	category: 'traitement',
 	name: 'Pixellisation',
 	summary: "Réduit l'image en blocs de couleur uniforme.",
-	thumbnail: './thumbnail.webp',
+	thumbnail,
 	params: [
 		{
 			key: 'cellSize',
@@ -25,5 +27,5 @@ export const manifest: ModuleDef = {
 			default: 'carré',
 		},
 	],
-	render: { kind: 'shader', fragment: '// TODO(Étape 2)' },
+	render: { kind: 'shader', fragment },
 };

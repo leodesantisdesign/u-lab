@@ -64,8 +64,11 @@ function createFakeGL(): WebGL2RenderingContext {
 		COLOR_ATTACHMENT0: 18,
 		COLOR_BUFFER_BIT: 19,
 		TEXTURE0: 20,
+		DITHER: 21,
 		drawingBufferWidth: 8,
 		drawingBufferHeight: 8,
+
+		disable: () => {},
 
 		createShader: () => ({}),
 		shaderSource: () => {},

@@ -125,7 +125,8 @@ U.LAB/
 - **Étape 0 terminée** ✅ — monorepo pnpm + Astro, déployé sur Cloudflare Pages : **u-lab.pages.dev**, mis à jour à chaque push sur `main`.
 - **Étape 1 terminée** ✅ — bascule vers l'éditeur unique : store, historique, inspecteur généré depuis les manifestes, modal de modules, aperçu, tiroir de modulation replié. Voir `docs/ETAPE-1.md`.
 - **Étape 1.5 terminée** ✅ — le store redevient l'unique propriétaire de l'état (plus aucune mutation directe du document depuis l'UI, un geste = une entrée d'historique), glisser-déposer de la pile en Pointer Events (souris/tactile/stylet) avec réordonnancement clavier, modal d'export statique, mouvement (apparition/disparition, impulsion du fil, ouverture des modals) en respectant `prefers-reduced-motion`. Voir `docs/ETAPE-1-5.md`.
-- **Étape 2, vague A terminée** ✅ — le moteur : `packages/engine` en WebGL2 (contrat shader, assembleur de programme, ping-pong de framebuffers, boucle paresseuse), les trois premiers modules réellement branchés (`source.image`, `traitement.halftone`, `finition.grain`), le canevas dans l'aperçu, et l'export image (`packages/export`) à pleine résolution du document. Le store étant redevenu le point de passage unique, l'invalidation du rendu tient en un seul `$effect`. Vague B à venir : `packages/palette`, Bayer, l'error diffusion en Worker, les finitions et réglages restants.
+- **Étape 2, vague A terminée** ✅ — le moteur : `packages/engine` en WebGL2 (contrat shader, assembleur de programme, ping-pong de framebuffers, boucle paresseuse), les trois premiers modules réellement branchés (`source.image`, `traitement.halftone`, `finition.grain`), le canevas dans l'aperçu, et l'export image (`packages/export`) à pleine résolution du document. Le store étant redevenu le point de passage unique, l'invalidation du rendu tient en un seul `$effect`.
+- **Étape 2 terminée** ✅ (vagues A et B) — le catalogue tient : `packages/palette` (six palettes signées), le chemin `render.kind === 'worker'` de bout en bout (debounce, single-flight, résultat précédent affiché pendant le calcul), et les huit modules du catalogue réellement branchés — `traitement.halftone`, `traitement.bayer`, `traitement.dither`, `traitement.posterisation`, `traitement.pixelisation`, `finition.reglages`, `finition.grain`, plus `source.image`. Vingt-quatre paramètres au total, conformes à `docs/ETAPE-2.md` §2. `source.video`/`source.webcam` visibles et grisés (« bientôt », étape 4) ; `traitement.ascii`, `finition.vignette`, `finition.scanlines`, `finition.aberration` hors du registre, reportés à l'étape 6. **Prochaine étape : étape 3, les projets** (IndexedDB, accueil, galerie de modèles, import/export `.ulab`).
 - **Ce qui survit du design system déjà commencé :** les tokens, les polices et les composants de base (`SectionLabel`, `SliderRow`, `Select`, `Button`, `Panel`) sont **valides et conservés**. Seule la mise en page d'écran change.
 - **Ce qui est abandonné :** l'idée d'une page par outil — la page `/u-dither` n'a jamais été construite, et ne le sera pas ; le dossier `tools/` est supprimé.
 - `_legacy/u-dither-v1/` = **legacy, à ne jamais étendre**. Sert de **référence fonctionnelle uniquement** (algorithmes, palettes, presets, vocabulaire des paramètres).
@@ -181,3 +182,23 @@ U.LAB/
 **Espace colorimétrique sRGB 8 bits de bout en bout, sans gestion de couleur.** À réévaluer le jour où on fait du bloom crédible.
 
 **Halftone : `frequency`/`sharpness` remplacés par `cellSize`/`roundness` avant tout gel des clés** (parité u.dither).
+
+### Juillet 2026 — Étape 2, fin de vague B : le catalogue tient
+
+**Le sujet de U.LAB est le tramage : comment une image survit à sa réduction en marques.** Halftone (AM, imprimerie 1880), Bayer (ordonné, écran 1973) et Dither (diffusion d'erreur, 1976/84) sont trois familles historiquement distinctes, donc trois modules — jamais un module à menu déroulant. Voir `docs/U.LAB-TRAMAGE.md`.
+
+**Critère d'entrée au catalogue : le test des 8 secondes** — un module entre s'il se voit dans une boucle de huit secondes sur un téléphone. Éliminés à ce titre : netteté, bruit fin, vignette, et les réglages d'impression fins du halftone (`minDot`, `jitter`, `stretch`, `roundness`), pourtant déjà écrits et fonctionnels.
+
+**Toute grandeur spatiale est en pixels du DOCUMENT, mise à l'échelle au rendu par l'uniforme `uScale`.** Sans ça l'aperçu ment sur la finesse de la trame — bug constaté dans la vague A. Limite documentée : la diffusion d'erreur ne peut pas être mise à l'échelle, sa maille est le pixel, et l'UI le dit.
+
+**La palette est un paramètre des modules de tramage, jamais un module qui vient après :** la diffusion d'erreur doit connaître la palette cible pour calculer son erreur. D'où le type de paramètre `'palette'`, application de l'architecture §8 (la capacité monte dans le vocabulaire commun, elle ne descend pas dans le module).
+
+**La famille CRT/vidéo (scanlines, aberration, bloom) est reportée EN BLOC à l'étape 6** : cohérente entre elle, incohérente avec la trame. L'ASCII est reporté seul — c'est une troisième famille (substitution de glyphes) qui demande un atlas fait proprement.
+
+**La correction de tons a un seul endroit : `finition.reglages`.** Les modules de tramage ne portent plus `contrast`/`brightness`/`gamma`.
+
+**Six palettes signées, pas d'éditeur personnalisé.**
+
+**Les médias vivent en mémoire pendant l'étape 2 ; recharger perd la photo, et l'UI le dit.** IndexedDB à l'étape 3.
+
+**Piège Svelte 5, deuxième occurrence — un effet qui lit trop, cette fois.** Constaté en direct (compteur de créations de contexte WebGL) : l'effet de création du moteur (`Editor.svelte`) lisait `quality` via `qualityMaxSide(quality)` pour poser la qualité initiale — assez pour que Svelte 5 le fasse dépendre de `quality` aussi, pas seulement du canevas. Changer la qualité d'aperçu détruisait et recréait tout le moteur (nouveau contexte WebGL à chaque sélection) ; comme `renderer` est un `let` simple, pas un `$state`, l'effet séparé qui appelle `renderer.setProject(...)` ne se rejouait pas pour cette nouvelle instance — l'aperçu se figeait jusqu'au prochain geste sans rapport avec la qualité. Corrigé en lisant `quality` via `untrack()` dans cet effet : il ne doit dépendre que du canevas, `handleQualityChange` gère déjà les changements ultérieurs par un appel impératif. Le premier piège (§ ci-dessus, « le canevas branché ») était un effet qui ne lisait pas assez ; celui-ci est le symétrique — un effet peut aussi lire de trop.
