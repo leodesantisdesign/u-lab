@@ -8,6 +8,7 @@
   import PointField from './PointField.svelte';
   import TextArea from './TextArea.svelte';
   import FileDrop from './FileDrop.svelte';
+  import PaletteField from './PaletteField.svelte';
 
   interface Props {
     param: ParamDef;
@@ -78,4 +79,6 @@
   <TextArea label={param.label} bind:value={() => asString(param.default), setValue} {disabled} />
 {:else if param.type === 'file'}
   <FileDrop label={param.label} {mediaName} error={fileError} {disabled} {onFile} />
+{:else if param.type === 'palette'}
+  <PaletteField label={param.label} bind:value={() => asString(param.default), setValue} {disabled} />
 {/if}

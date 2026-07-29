@@ -25,8 +25,8 @@ export function blendModeIndex(mode: BlendMode): number {
 	return index === -1 ? 0 : index;
 }
 
-// ETAPE-2.md §3.1 ferme la liste à uSource/uResolution/uTexel/uTime/uFrame/
-// uSeed. `uMediaSize` s'y ajoute pour le prompt 2 : le cadrage "contain" de
+// ETAPE-2.md §3.1 ferme la liste à uSource/uResolution/uTexel/uScale/uTime/
+// uFrame/uSeed. `uMediaSize` s'y ajoute pour le prompt 2 : le cadrage "contain" de
 // source.image a besoin de la résolution native du média, et §3.1 dit
 // explicitement que le type 'file' n'est "jamais transmis à un shader" — un
 // module ne peut donc pas se la fournir lui-même en uniforme dérivé d'un
@@ -34,12 +34,19 @@ export function blendModeIndex(mode: BlendMode): number {
 // moteur, elle remonte dans packages/engine, elle ne descend pas dans le
 // module »). Toujours présent, (0,0) quand aucun média n'est résolu — les
 // modules qui n'en ont pas besoin l'ignorent, sans coût.
+//
+// `uScale` (ETAPE-2.md §3.7) = uResolution.x / project.format.width : toute
+// grandeur spatiale d'un manifeste est exprimée en pixels du DOCUMENT,
+// jamais en pixels de rendu — un shader qui manipule une taille en px la
+// multiplie par uScale, sinon l'aperçu ment (trame fine réglée, trame
+// grossière exportée). Vaut 1.0 à l'export, < 1 en aperçu réduit.
 const ENGINE_PREAMBLE = `#version 300 es
 precision highp float;
 
 uniform sampler2D uSource;
 uniform vec2 uResolution;
 uniform vec2 uTexel;
+uniform float uScale;
 uniform float uTime;
 uniform int uFrame;
 uniform float uSeed;
@@ -51,6 +58,26 @@ out vec4 fragColor;
 
 const BLEND_UNIFORMS = `uniform int u_blendMode;
 uniform float u_blendOpacity;
+`;
+
+// Plus proche voisin dans une palette d'au plus 16 couleurs (ETAPE-2.md
+// §3.4) : utilitaire commun au préambule pour qu'aucun des modules de
+// tramage ne le réécrive chacun de son côté. `count == 0` (palette
+// 'aucune') ⇒ `c` inchangé, pas de branche spéciale ailleurs.
+const ULAB_PALETTE_FUNCTION = `vec3 ulab_palette_nearest(vec3 c, vec3 pal[16], int count) {
+  if (count <= 0) return c;
+  vec3 best = pal[0];
+  float bestDist = distance(c, pal[0]);
+  for (int i = 1; i < 16; i++) {
+    if (i >= count) break;
+    float d = distance(c, pal[i]);
+    if (d < bestDist) {
+      bestDist = d;
+      best = pal[i];
+    }
+  }
+  return best;
+}
 `;
 
 // Les six modes de BlendMode (architecture §3). L'index de branche suit
@@ -109,6 +136,8 @@ function paramUniformDeclaration(param: ParamDef): string | null {
 			return `uniform vec3 u_${param.key};`;
 		case 'point':
 			return `uniform vec2 u_${param.key};`;
+		case 'palette':
+			return `uniform vec3 u_${param.key}[16];\nuniform int u_${param.key}_count;`;
 		case 'text':
 		case 'file':
 			return null;
@@ -133,15 +162,18 @@ export type AssembledProgram = {
 	fragment: string;
 };
 
+/** Un module de type 'shader' — seule forme qu'assembleProgram sait assembler. */
+export type ShaderModuleDef = ModuleDef & { render: Extract<ModuleDef['render'], { kind: 'shader' }> };
+
 /**
  * Assemble le programme complet autour de la fonction `ulab_main` fournie
  * par le module (ETAPE-2.md §3.1 et §3.2) :
  * préambule moteur + uniformes du manifeste + `ulab_blend` (sauf source) +
  * corps du module + épilogue `main()`.
  */
-export function assembleProgram(def: ModuleDef): AssembledProgram {
+export function assembleProgram(def: ShaderModuleDef): AssembledProgram {
 	const isSource = def.category === 'source';
-	const parts = [ENGINE_PREAMBLE, paramUniformBlock(def.params)];
+	const parts = [ENGINE_PREAMBLE, ULAB_PALETTE_FUNCTION, paramUniformBlock(def.params)];
 
 	if (!isSource) parts.push(BLEND_UNIFORMS, ULAB_BLEND_FUNCTION);
 

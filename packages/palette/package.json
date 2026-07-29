@@ -1,5 +1,5 @@
 {
-  "name": "@ulab/modules",
+  "name": "@ulab/palette",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -9,12 +9,9 @@
   "scripts": {
     "test": "vitest run"
   },
-  "dependencies": {
-    "@ulab/palette": "workspace:*"
-  },
   "devDependencies": {
     "@types/node": "^26.1.1",
-    "typescript": "6.0.3",
+    "typescript": "^6.0.3",
     "vitest": "^4.1.10"
   }
 }

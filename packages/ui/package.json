@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@ulab/core": "workspace:*",
-    "@ulab/modules": "workspace:*"
+    "@ulab/modules": "workspace:*",
+    "@ulab/palette": "workspace:*"
   }
 }

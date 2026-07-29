@@ -48,6 +48,7 @@
   }
 
   function isDisabled(def: ModuleDef): boolean {
+    if (def.comingSoon) return true;
     if (def.category === 'source') return false;
     return currentTypes.includes(def.type);
   }
@@ -118,10 +119,17 @@
           {#if cat.key === 'source'}
             <div class="tools-modal__list">
               {#each modulesFor(cat.key) as def (def.type)}
-                <button class="tools-modal__row" onclick={() => pick(def)}>
+                <button
+                  class="tools-modal__row"
+                  class:tools-modal__row--disabled={isDisabled(def)}
+                  disabled={isDisabled(def)}
+                  onclick={() => pick(def)}
+                >
                   <span class="tools-modal__row-icon">{@render moduleIcon()}</span>
                   <span class="tools-modal__row-name">{def.name}</span>
-                  {#if def.type === currentSourceType}
+                  {#if def.comingSoon}
+                    <span class="tools-modal__row-soon">bientôt</span>
+                  {:else if def.type === currentSourceType}
                     <span class="tools-modal__row-check" aria-hidden="true">✓</span>
                   {/if}
                 </button>
@@ -137,7 +145,9 @@
                   disabled={isDisabled(def)}
                   onclick={() => pick(def)}
                 >
-                  <span class="tools-modal__tile-thumb"></span>
+                  <span class="tools-modal__tile-thumb">
+                    <img class="tools-modal__tile-img" src={def.thumbnail} alt="" loading="lazy" />
+                  </span>
                   <span class="tools-modal__tile-name">{def.name}</span>
                 </button>
               {/each}
@@ -299,6 +309,23 @@
     font-size: var(--t-sm);
   }
 
+  .tools-modal__row--disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+
+  .tools-modal__row--disabled:hover {
+    background: transparent;
+  }
+
+  .tools-modal__row-soon {
+    font-family: var(--font-sans);
+    font-size: var(--t-micro);
+    color: var(--ink-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
   .tools-modal__grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, var(--vignette-size));
@@ -323,12 +350,21 @@
   }
 
   .tools-modal__tile-thumb {
+    display: block;
     width: var(--vignette-size);
     height: var(--vignette-size);
     background: var(--bg-2);
     border: 1px solid var(--line);
     border-radius: var(--r-lg);
+    overflow: hidden;
     transition: border-color var(--dur-fast) var(--ease);
+  }
+
+  .tools-modal__tile-img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
   }
 
   .tools-modal__tile--active .tools-modal__tile-thumb {

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import { DocumentStore, MediaStore, createProject } from '@ulab/core';
   import type { ModuleInstance, Project } from '@ulab/core';
   import { createRenderer } from '@ulab/engine';
@@ -58,6 +58,16 @@
 
   const store = new DocumentStore(buildDefaultProject());
   const mediaStore = new MediaStore();
+
+  // ETAPE-2.md §3.7 : la maille d'une diffusion d'erreur est le pixel de
+  // RENDU lui-même — elle ne peut pas être compensée par uScale comme les
+  // autres grandeurs spatiales. Affiché seulement quand ça peut vraiment se
+  // voir, pas comme un avertissement permanent sans rapport avec la pile.
+  const hasActiveWorkerModule = $derived(
+    store.project.stack.some(
+      (instance) => instance.enabled && byType(instance.type)?.render.kind === 'worker',
+    ),
+  );
 
   // Signal « quelque chose vient d'être branché » (design system §5) : le
   // SEUL retour sur un changement de composition de la pile — ajout,
@@ -287,10 +297,21 @@
   }
 
   // Création du moteur : dépend du canevas, donc dans un $effect (le ref
-  // n'existe qu'après le montage). Le nettoyage retourné dispose le moteur
-  // aussi bien au démontage réel qu'à un rechargement à chaud en dev — Vite
-  // détruit puis recrée l'instance du composant dans les deux cas, ce qui
-  // rejoue ce même effet et son nettoyage.
+  // n'existe qu'après le montage) — et UNIQUEMENT du canevas. `quality` doit
+  // être lu en `untrack` : sans ça, `qualityMaxSide(quality)` fait dépendre
+  // cet effet de `quality` aussi, et Svelte 5 détruit puis recrée tout le
+  // moteur (nouveau contexte WebGL) à chaque changement de qualité — constaté
+  // en direct (compteur de créations de contexte GL). Comme `renderer` est
+  // un `let` simple, pas un `$state`, l'effet séparé qui appelle
+  // `renderer.setProject(...)` ne se rejoue pas pour cette nouvelle instance :
+  // l'aperçu se fige jusqu'au prochain geste sans rapport. `handleQualityChange`
+  // gère déjà les changements ultérieurs par un appel impératif à
+  // `setQuality` — cet effet ne doit fournir que la valeur INITIALE.
+  //
+  // Le nettoyage retourné dispose le moteur aussi bien au démontage réel
+  // qu'à un rechargement à chaud en dev — Vite détruit puis recrée
+  // l'instance du composant dans les deux cas, ce qui rejoue ce même effet
+  // et son nettoyage.
   $effect(() => {
     if (!canvasEl) return;
 
@@ -302,7 +323,7 @@
     rendererError =
       instance.state === 'error' ? (instance.error?.message ?? 'WebGL2 indisponible.') : null;
 
-    instance.setQuality(qualityMaxSide(quality));
+    instance.setQuality(qualityMaxSide(untrack(() => quality)));
     instance.start();
     renderer = instance;
 
@@ -476,6 +497,13 @@
       <Button variant="secondary">Sauvegarder</Button>
     </div>
   </header>
+
+  {#if hasActiveWorkerModule}
+    <p class="editor__worker-notice">
+      La diffusion d'erreur (Dither) suit la résolution de rendu, pas le document : sa texture
+      est plus grossière en qualité basse qu'à l'export.
+    </p>
+  {/if}
 
   <div class="editor__workspace">
     <div class="editor__inspector-anchor">
@@ -829,6 +857,16 @@
     font-size: var(--t-sm);
     color: var(--ink-faint);
     text-align: center;
+  }
+
+  .editor__worker-notice {
+    margin: 0;
+    padding: var(--space-6) var(--space-16);
+    font-family: var(--font-sans);
+    font-size: var(--t-sm);
+    color: var(--ink-faint);
+    text-align: center;
+    border-bottom: 1px solid var(--line);
   }
 
   .editor__preview-controls {

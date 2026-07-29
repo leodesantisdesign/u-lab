@@ -49,6 +49,13 @@ export function createGLContext(canvas: UlabCanvas): WebGL2RenderingContext {
 		alpha: true,
 	}) as WebGL2RenderingContext | null;
 	if (!gl) throw new WebGL2UnavailableError();
+
+	// GL_DITHER est activé par défaut et ajoute du bruit à l'écriture dans le
+	// framebuffer pour lisser les dégradés — contre-productif ici : plusieurs
+	// modules (Dither, palette) garantissent des couleurs de sortie exactes,
+	// que ce bruit casserait silencieusement.
+	gl.disable(gl.DITHER);
+
 	return gl;
 }
 

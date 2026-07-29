@@ -1,18 +1,20 @@
 import type { ModuleDef } from '../types.ts';
 import fragment from './shader.glsl?raw';
+import thumbnail from './thumbnail.webp?url';
 
-// Paramètres portés de _legacy/u-dither-v1/web/src/core/halftoneParams.ts
-// pour la parité u.dither (ETAPE-2.md, prompt 2). 'frequency'/'sharpness'
-// (exemple canonique de l'architecture §4) disparaissent au profit de
-// 'cellSize'/'roundness' — voir CLAUDE.md §7 pour la décision. 'gamma',
-// 'contrast' et 'colorMode' du legacy ne reviennent pas : ce ne sont plus
-// des paramètres de ce module. 'palette' arrive en vague B.
+// Manifeste final avant gel des clés (étape 3) — docs/ETAPE-2.md §2 et
+// docs/U.LAB-TRAMAGE.md §4 (le test des 8 secondes) : minDot, jitter,
+// stretch et roundness sont retirés, ce sont des micro-réglages d'expert
+// qui ne se voient pas dans une boucle de huit secondes.
+//
+// L'ordre des options de 'shape' est un contrat public (ETAPE-2.md §3.1) :
+// on complète par la fin, jamais par le milieu.
 export const manifest: ModuleDef = {
 	type: 'traitement.halftone',
 	category: 'traitement',
 	name: 'Halftone',
-	summary: "Trame d'impression : points, lignes, angle, cellule.",
-	thumbnail: './thumbnail.webp',
+	summary: "Trame d'impression : une grille de points dont la taille varie.",
+	thumbnail,
 	params: [
 		{
 			key: 'cellSize',
@@ -35,51 +37,11 @@ export const manifest: ModuleDef = {
 			unit: '%',
 		},
 		{
-			key: 'minDot',
-			label: 'Point minimum',
-			type: 'number',
-			min: 0,
-			max: 100,
-			step: 1,
-			default: 8,
-			unit: '%',
-		},
-		{
 			key: 'shape',
 			label: 'Forme',
 			type: 'enum',
-			options: ['rond', 'carré', 'carré arrondi'],
+			options: ['rond', 'carré', 'losange', 'ligne'],
 			default: 'rond',
-		},
-		{
-			key: 'roundness',
-			label: 'Arrondi',
-			type: 'number',
-			min: 0,
-			max: 100,
-			step: 1,
-			default: 60,
-			unit: '%',
-		},
-		{
-			key: 'jitter',
-			label: 'Gigue',
-			type: 'number',
-			min: 0,
-			max: 100,
-			step: 1,
-			default: 6,
-			unit: '%',
-		},
-		{
-			key: 'stretch',
-			label: 'Étirement',
-			type: 'number',
-			min: 60,
-			max: 160,
-			step: 1,
-			default: 100,
-			unit: '%',
 		},
 		{
 			key: 'angle',
@@ -96,6 +58,12 @@ export const manifest: ModuleDef = {
 			label: 'Inverser',
 			type: 'boolean',
 			default: false,
+		},
+		{
+			key: 'palette',
+			label: 'Palette',
+			type: 'palette',
+			default: 'aucune',
 		},
 	],
 	render: { kind: 'shader', fragment },

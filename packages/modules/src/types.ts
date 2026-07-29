@@ -2,12 +2,25 @@ export type ModuleCategory = 'source' | 'traitement' | 'finition';
 
 export type RenderKind = 'shader' | 'worker' | 'compute';
 
-export type RenderDef = {
-	kind: RenderKind;
-	// Placeholder à cette étape (aucun shader/worker réel avant l'Étape 2) —
-	// deviendra la source GLSL, le module worker ou le kernel compute selon `kind`.
+export type ShaderRenderDef = {
+	kind: 'shader';
+	/** Corps GLSL de `ulab_main` (ETAPE-2.md §3.1) — jamais un programme complet. */
 	fragment: string;
 };
+
+export type WorkerRenderDef = {
+	kind: 'worker';
+	// Constructeur Worker (import Vite `?worker` sur un fichier qui relaie
+	// vers `process`, ETAPE-2.md §3.3) — le moteur fait `new worker()`, jamais
+	// un import direct : c'est ainsi qu'un module `worker` reste utilisable
+	// sans que packages/engine importe une valeur de @ulab/modules.
+	worker: new () => Worker;
+};
+
+// 'compute' (pixel sort, WebGPU) : pas encore de forme, hors périmètre de
+// cette étape (docs/U.LAB-TRAMAGE.md §3). RenderKind le garde nommable sans
+// que RenderDef invente une forme non implémentée.
+export type RenderDef = ShaderRenderDef | WorkerRenderDef;
 
 type ParamCommon<T extends string> = {
 	key: string;
@@ -48,6 +61,10 @@ export type FileParamDef = ParamCommon<'file'> & {
 	default: string | null; // référence de média (MediaRef.id), absente si null
 };
 
+export type PaletteParamDef = ParamCommon<'palette'> & {
+	default: string; // nom d'une palette de @ulab/palette, ou 'aucune'
+};
+
 export type ParamDef =
 	| NumberParamDef
 	| EnumParamDef
@@ -55,7 +72,8 @@ export type ParamDef =
 	| ColorParamDef
 	| PointParamDef
 	| TextParamDef
-	| FileParamDef;
+	| FileParamDef
+	| PaletteParamDef;
 
 export type ModuleDef = {
 	type: string; // 'traitement.halftone' — identifiant stable, jamais renommé
@@ -65,4 +83,9 @@ export type ModuleDef = {
 	thumbnail: string;
 	params: ParamDef[];
 	render: RenderDef;
+	// Listé dans le modal, grisé et non sélectionnable, avec la mention
+	// « bientôt » — pour un module qui annonce une étape à venir (ETAPE-2.md
+	// §2 : source.video et source.webcam annoncent l'étape 4) sans être
+	// masqué. Absent ou false : module normalement sélectionnable.
+	comingSoon?: boolean;
 };

@@ -76,7 +76,7 @@ class RendererImpl implements Renderer {
 	private readonly onContextRestored = (): void => {
 		try {
 			const gl = createGLContext(this.canvas);
-			this.pipeline = new Pipeline(gl);
+			this.pipeline = new Pipeline(gl, () => this.markDirty());
 			this.state = 'idle';
 			this.error = null;
 			this.markDirty();
@@ -108,7 +108,10 @@ class RendererImpl implements Renderer {
 
 		try {
 			const gl = createGLContext(canvas);
-			this.pipeline = new Pipeline(gl);
+			// Un résultat de worker arrive de manière asynchrone, hors de tout
+			// $effect Svelte : c'est ce callback qui prévient la boucle
+			// paresseuse qu'il y a de nouveau quelque chose à dessiner.
+			this.pipeline = new Pipeline(gl, () => this.markDirty());
 		} catch (err) {
 			this.setError(toError(err));
 		}
@@ -140,15 +143,21 @@ class RendererImpl implements Renderer {
 
 		// Hors écran, à pleine résolution, sur un canevas dédié — jamais celui
 		// de l'aperçu (ETAPE-2.md §3.6) — et aucune référence au DOM : un
-		// OffscreenCanvas n'en est pas un.
+		// OffscreenCanvas n'en est pas un. Pipeline jetable, pas de boucle
+		// live derrière : pas besoin d'onAsyncUpdate.
 		const offscreen = new OffscreenCanvas(Math.max(1, size.width), Math.max(1, size.height));
 		const gl = createGLContext(offscreen);
 		const pipeline = new Pipeline(gl);
 		try {
 			pipeline.resize(offscreen.width, offscreen.height);
-			pipeline.render(project.stack, this.resolveModule, this.resolveMedia, {
+			// renderBlocking, pas render : à l'export, une passe worker
+			// (ETAPE-2.md §3.6/§3.7) se calcule sans debounce et est réellement
+			// attendue avant d'encoder — jamais le résultat précédent (il n'y en
+			// a pas, ce pipeline est neuf) ni un résultat partiel.
+			await pipeline.renderBlocking(project.stack, this.resolveModule, this.resolveMedia, {
 				time: this.elapsedSeconds(),
 				frame: this.frame,
+				documentWidth: project.format.width,
 			});
 			gl.flush();
 			return await createImageBitmap(offscreen);
@@ -194,6 +203,7 @@ class RendererImpl implements Renderer {
 			this.pipeline.render(this.project.stack, this.resolveModule, this.resolveMedia, {
 				time: this.elapsedSeconds(),
 				frame: this.frame,
+				documentWidth: this.project.format.width,
 			});
 		} catch (err) {
 			this.setError(toError(err));

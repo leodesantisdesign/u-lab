@@ -213,7 +213,7 @@ L'ancien plan (0→6) est caduc. Le nouveau :
 
 *Pourquoi sans moteur : la mécanique **est** le produit. Il faut la sentir dans un vrai navigateur avant de câbler du GPU dessus. Si l'enchaînement des gestes ne va pas, ça se corrige en dix minutes à ce stade, et en trois jours après.*
 
-**Étape 2 — Le moteur et trois modules.** WebGL2, ping-pong, `source.image`, `traitement.halftone`, `finition.grain`. Le premier vrai rendu, et la preuve que le manifeste suffit à générer l'UI.
+**Étape 2 — Le moteur et le catalogue** ✅ *terminée.* WebGL2, ping-pong, chemin Worker pour la diffusion d'erreur, `packages/palette`. Huit modules, vingt-quatre paramètres : `source.image`, `traitement.halftone`, `traitement.bayer`, `traitement.dither`, `traitement.posterisation`, `traitement.pixelisation`, `finition.reglages`, `finition.grain`. Le premier vrai rendu, et la preuve que le manifeste suffit à générer l'UI. → `docs/ETAPE-2.md`
 
 **Étape 3 — Les projets.** IndexedDB, accueil « mes projets », modèles, import/export `.ulab`, undo/redo. À partir de là, U.LAB est utilisable.
 

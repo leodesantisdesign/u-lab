@@ -10,5 +10,8 @@ export const manifest: ModuleDef = {
 		{ key: 'file', label: 'Fichier', type: 'file', default: null },
 		{ key: 'loop', label: 'Boucle', type: 'boolean', default: true },
 	],
-	render: { kind: 'shader', fragment: '// TODO(Étape 2)' },
+	render: { kind: 'shader', fragment: '// TODO(Étape 4)' },
+	// Annonce l'étape 4 (ETAPE-2.md §2) : visible dans le modal, grisé,
+	// « bientôt » — pas masqué.
+	comingSoon: true,
 };
