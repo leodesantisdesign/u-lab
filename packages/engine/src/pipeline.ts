@@ -649,7 +649,20 @@ export class Pipeline {
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+		// Seul endroit du moteur où une image "du monde extérieur" entre : un
+		// ImageBitmap est rangé première ligne = HAUT, alors que `vUv` (quad.ts) a
+		// son origine en BAS à gauche. Sans ce flip, le bas de l'écran échantillonne
+		// la première ligne du média : l'image sort à l'envers, dans l'aperçu comme
+		// à l'export (même Pipeline).
+		//
+		// Le drapeau est désarmé juste après, et ce n'est pas de la politesse : il
+		// est global au contexte GL, et le chemin worker (readTextureToImageData →
+		// readPixels bas-haut → worker → texImage2D) est déjà cohérent de bout en
+		// bout parce que ses deux inversions s'annulent. Le laisser armé casserait
+		// `traitement.dither`.
+		gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
 		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, bitmap);
+		gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
 
 		this.mediaTextures.set(mediaId, { texture, bitmap });
 		return { texture, size: [bitmap.width, bitmap.height] };
