@@ -471,11 +471,82 @@
       { kind: 'keyframes', points: [] },
     );
   }
+
+  // --- Historique -----------------------------------------------------------
+  //
+  // Le store porte undo()/redo()/canUndo/canRedo depuis l'étape 1.5, testés,
+  // mais rien ne les appelait : Cmd+Z ne faisait rien. Deux points d'entrée,
+  // parce qu'aucun des deux ne suffit seul — le raccourci pour l'usage réel au
+  // clavier, les boutons parce que le public visé est « tout le monde » (§1) et
+  // qu'il n'y a pas de Cmd+Z sur un écran tactile.
+
+  const isMac =
+    typeof navigator !== 'undefined' && /Mac|iP(hone|ad|od)/.test(navigator.userAgent);
+  // Const simples, pas des `$derived` : `isMac` ne change jamais de la vie du
+  // composant, un état dérivé ferait croire à une réactivité qui n'existe pas.
+  const undoHint = isMac ? '⌘Z' : 'Ctrl+Z';
+  const redoHint = isMac ? '⇧⌘Z' : 'Ctrl+Maj+Z';
+
+  /**
+   * Un champ de SAISIE DE TEXTE garde son undo natif : voler Cmd+Z pendant
+   * qu'on tape serait pire que de ne rien brancher du tout. Un curseur
+   * (`range`), une case ou un select n'en sont pas — et c'est justement après
+   * avoir tiré un curseur qu'on veut annuler, donc la distinction porte sur le
+   * type de l'input, pas sur « le focus est-il dans un input ».
+   */
+  function isTextEntry(target: EventTarget | null): boolean {
+    if (!(target instanceof HTMLElement)) return false;
+    if (target.isContentEditable) return true;
+    if (target instanceof HTMLTextAreaElement) return true;
+    if (target instanceof HTMLInputElement) {
+      return !['range', 'checkbox', 'radio', 'button', 'file', 'color'].includes(target.type);
+    }
+    return false;
+  }
+
+  const modalOpen = $derived(toolsModal !== null || showExportModal);
+
+  function handleWindowKeydown(event: KeyboardEvent) {
+    if (!(event.metaKey || event.ctrlKey) || event.altKey) return;
+    // Un modal ouvert a sa propre logique de sortie (Échap) : y annuler un
+    // geste fait sous le modal n'aurait aucun retour visible.
+    if (modalOpen || isTextEntry(event.target)) return;
+
+    // `event.key` vaut 'Z' majuscule quand Maj est enfoncé — d'où le toLowerCase.
+    const key = event.key.toLowerCase();
+    const undo = key === 'z' && !event.shiftKey;
+    const redo = (key === 'z' && event.shiftKey) || key === 'y';
+    if (!undo && !redo) return;
+
+    event.preventDefault();
+    if (undo) store.undo();
+    else store.redo();
+  }
 </script>
+
+<svelte:window onkeydown={handleWindowKeydown} />
 
 {#snippet moduleIcon()}
   <svg width="8" height="8" viewBox="0 0 8 8" aria-hidden="true">
     <rect width="8" height="8" fill="currentColor" />
+  </svg>
+{/snippet}
+
+{#snippet undoIcon(flip: boolean)}
+  <svg
+    width="14"
+    height="14"
+    viewBox="0 0 14 14"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.5"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+    style={flip ? 'transform: scaleX(-1)' : undefined}
+  >
+    <path d="M2.5 6.5h6a3 3 0 0 1 0 6H6" />
+    <path d="M5 3.5 2 6.5l3 3" />
   </svg>
 {/snippet}
 
@@ -490,6 +561,26 @@
           bind:value={() => quality, handleQualityChange}
         />
         <span class="editor__fps">{QUALITY_FPS[quality]} i/s</span>
+      </div>
+      <div class="editor__history">
+        <Button
+          variant="ghost"
+          disabled={!store.canUndo}
+          aria-label="Annuler ({undoHint})"
+          title="Annuler · {undoHint}"
+          onclick={() => store.undo()}
+        >
+          {@render undoIcon(false)}
+        </Button>
+        <Button
+          variant="ghost"
+          disabled={!store.canRedo}
+          aria-label="Rétablir ({redoHint})"
+          title="Rétablir · {redoHint}"
+          onclick={() => store.redo()}
+        >
+          {@render undoIcon(true)}
+        </Button>
       </div>
     </div>
     <div class="editor__topbar-right">
@@ -682,6 +773,25 @@
     display: flex;
     align-items: center;
     gap: var(--space-8);
+  }
+
+  .editor__history {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+  }
+
+  /* `:global` est obligatoire ici : `.btn` est rendu par Button.svelte, donc la
+     classe de portée d'Editor.svelte ne l'atteint pas. C'est `.editor__history`
+     qui porte la portée et limite l'effet à ces deux boutons. */
+  .editor__history :global(.btn) {
+    width: var(--button-height);
+    padding: 0;
+    color: var(--ink-muted);
+  }
+
+  .editor__history :global(.btn:not(:disabled):hover) {
+    color: var(--ink);
   }
 
   .editor__fps {
